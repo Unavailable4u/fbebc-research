@@ -1,0 +1,32 @@
+{
+  "task": "circle_packing",
+  "model": "openai/gpt-oss-120b",
+  "image_digest": "python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+  "invocations": [
+    {
+      "ts_utc": "2026-09-23T21:25:53Z",
+      "git_commit": "36ae5c90eb3369d25d135581e41b3e01912d4d18",
+      "git_dirty": true,
+      "python": "3.14.4",
+      "image_digest": "python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+      "args": {
+        "task": "circle_packing",
+        "generations": 6,
+        "target_generations": null,
+        "round_size": 10,
+        "conditions": "elite_band",
+        "band_size": 3,
+        "seed_base": 0,
+        "seeds": null,
+        "ledger": "runs/measure_band.db",
+        "restart": false,
+        "daily_request_cap": 900,
+        "daily_token_cap": null,
+        "verbose": true
+      },
+      "arms": [
+        "elite_band/seed0"
+      ]
+    }
+  ]
+}

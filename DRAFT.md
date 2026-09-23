@@ -92,9 +92,12 @@ this paper builds and evaluates.
    admission threshold is set on it — decoupling the fairness measurement
    from the fairness decision, so the metric cannot be tuned in hindsight
    to justify a particular acceptance rate.
-4. [TODO — needs real run] An empirical comparison of elite-band vs.
-   single-winner selection under this correctness-only fitness, on a
-   controlled benchmark task, at a disclosed, small compute budget.
+4. [TODO — needs real run] A matched-arm empirical comparison of a
+   fixed-width elite band (k=3) against single-winner selection (k=1) —
+   one class, one parameter — under a *deterministic*, correctness-only
+   fitness, at a disclosed, small compute budget. Because the fitness has
+   no evaluation noise, this comparison tests exploration (escaping local
+   optima), not noise robustness; the paper does not claim the latter.
 
 **What this paper does not claim**, stated here rather than deferred to
 Limitations: no latency or timing-fairness result (fitness is
@@ -128,12 +131,14 @@ of that single-winner rule, adapted for a deterministic (non-adversarial,
 non-stochastic-self-play) fitness: a child is adopted iff it is attested,
 valid, and its fitness is at least the current parent's (ties adopted,
 never a decrease) — there is no win-margin threshold because there is no
-match-based noise to guard against at this scale. The planned Week 4
-ablation contrasts this against an elite-band variant that retains more
-than one live candidate, in the spirit of MAP-Elites-style archival
-rather than pure truncation, [TODO — the exact elite-band selection rule
-is not yet finalized; write it here once it is, before running the
-ablation, not after].
+match-based noise to guard against at this scale. The ablation
+contrasts this against an elite-band variant that retains the top k=3
+distinct candidates seen so far and samples each generation's parent from
+that archive — closer in spirit to archival methods than to pure
+truncation, though (unlike MAP-Elites) the archive is ranked by fitness
+alone with no behavioral-descriptor grid. The exact rule is fixed in
+§3.4 and was pre-registered before any circle-packing run
+(`PREREGISTRATION.md`).
 
 **Theoretical self-modification and governance.** This is FBEBC's
 strongest point of differentiation. Schmidhuber's Gödel Machine
@@ -236,18 +241,36 @@ acceptance rate. Freezing it first, and recording-not-enforcing it in
 Stage 1, keeps the measurement honest even though Stage 1 makes no
 admission decision from it yet.
 
-**3.4 Selection: single-winner (Stage 1 default) vs. elite-band (Week 4
-ablation).** Stage 1's generation loop is single-winner hill-climbing: at
-each generation, Σ proposes one diff against the current parent; if
-admitted and the resulting evaluation is attested and valid, it becomes
-the next parent iff its fitness is at least the current parent's (ties
-adopted). This is the same shape as AlphaGo Zero's checkpoint-replacement
-rule, adapted for a deterministic fitness signal rather than a
-stochastic win-rate over matches. [TODO — needs Week 4] The ablation's
-other arm retains more than one live candidate across generations,
-testing whether that reduces sensitivity to evaluation noise relative to
-single-winner truncation — write the exact selection rule here once
-finalized, before running it.
+**3.4 Selection: single-winner (k=1) vs. elite band (k=3).** Both arms
+are one implementation (`delta/selection.py`) differing in one integer, k,
+so any outcome difference cannot be blamed on two divergent code paths.
+The state is the top-k *distinct* (canonical-AST-fingerprint) attested,
+valid candidates seen so far, with the sandbox-scored seed `P_0` as the
+first member. Each generation, Σ proposes one diff against a parent
+sampled uniformly from the band (seeded by `(seed_base, generation)`, so
+an interrupted run resumes to exactly the same choices); a child enters iff
+it is not a semantic duplicate of a current member and either the band is
+not full or its fitness is at least the band's worst (ties adopted); on
+entry to a full band it replaces the worst (oldest among ties). With k=1
+this is exactly the single-winner rule — a child replaces the incumbent iff
+its fitness is at least the incumbent's — the same shape as AlphaGo
+Zero's replacement rule adapted to a deterministic fitness (no win-margin,
+since there are no matches). Unattested candidates never enter either arm
+(Phase 1 hard rule 1). **Disclosed simplifications:** k is a fixed integer
+— the Phase 1 design's fairness-bounded, scheduled band width and G_t
+controller are not part of Stage 1 — and k=3, uniform sampling, and the
+duplicate rule were chosen a priori and not tuned.
+
+*What the ablation can show.* circle-packing fitness is a deterministic
+function of the candidate's output, so there is no evaluation noise for
+selection to be robust against. The comparison therefore tests
+*exploration*: whether retaining several parents helps where a single
+incumbent stalls in a local optimum. We do not claim noise robustness.
+
+*Baseline.* `P_0` is scored in the same sandbox before generation 0
+(ledger `generation_index = −1`) and seeds the selection state; without
+this, the first admitted child would be adopted even if it scored below the
+seed, and "improvement over `P_0`" would have no measured denominator.
 
 **3.5 Sandbox and isolation (Stage 1 scope).** Docker with explicit
 hardening flags (`--network=none`, `--read-only`, `--cap-drop=ALL`,
@@ -314,17 +337,24 @@ result for I5, not a completed one.
 - Population/generation budget: research-program-guide §1.5 sizes this
   experiment as "population 40, generations 25 → 1,000 mutation calls per
   run" — a calculation that assumes a population sampled each generation.
-  This build's actual selection loop (§3.4) is single-winner
-  hill-climbing with no population dimension: one Sigma call per
-  generation attempt, plus retries on admission rejection. We therefore
-  translate the guide's total-effort budget rather than its literal
-  generation count, using our own measured ~1.6 calls/generation from
-  pipeline-debugging on the warm-up task: **3 seeds, 600 generations
-  target each.** [TODO: report the *actual* total call count and
-  generations completed per seed once the run finishes — these will not
-  exactly match the 600 target if any arm stalls out on repeated
-  admission rejections or exhausts the daily request budget before
-  reaching it; report the real number, not the target.]
+  This build's loop has no population dimension: one Σ call per generation
+  attempt, plus up to two retries on rejection or an unusable reply. We
+  therefore size the experiment by *total Σ effort* rather than by the
+  guide's literal generation count. The effort actually available is set by
+  the free tier's **tokens-per-day** limit, not its request limit — an
+  earlier plan (3 seeds × 600 generations) assumed the request limit
+  bound; it did not survive measurement [TODO: report the measured
+  tokens/call, the provider limits used, and the resulting target
+  generations per arm, from `scripts/usage_report.py` and
+  `PREREGISTRATION.md` §2]. Design: 2 conditions × 3 seeds = 6 arms
+  advanced round-robin, so a quota stop leaves them matched. [TODO: report
+  the *actual* generations completed per arm, the analysis generation
+  count G_common, and total Σ calls/tokens (from the usage log) — not the
+  targets.]
+- Σ is **not seeded**: temperature 0.7, provider-side non-determinism is
+  uncontrolled. `seed_base` fixes only the parent-sampling RNG and the
+  evaluation seed, so paired arms share a seed label, not a trajectory.
+  The hash-chained ledger — not the seed — is the reproducibility artifact.
 - Compute environment: Docker on a personal machine (WSL2 Ubuntu, native
   Docker Engine — see §3.5), explicitly not gVisor or bare metal,
   explicitly no timing measurement of any kind.
@@ -370,6 +400,16 @@ Do not draft this section with placeholder numbers. Once the run in
   human attacker.
 - A single free-tier model (`openai/gpt-oss-120b` via Groq) as Σ; results
   may not generalize to stronger, weaker, or differently-trained models.
+- The elite band is a fixed-width (k=3) fitness-ranked archive with uniform
+  parent sampling — a Stage 1 simplification of the full design's
+  fairness-bounded, scheduled band — and only one k was run. The fitness is
+  deterministic, so the ablation speaks to exploration, not to robustness
+  under evaluation noise (the setting the elite-band idea is motivated by).
+- Σ is unseeded and provider-side behavior can drift; trajectories are not
+  reproducible from seeds, only auditable from the ledger.
+- Σ replies with no usable diff (`E_NO_PROPOSAL`) consume quota and retries
+  like any other rejected attempt; they are reported separately from gate
+  rejections and are not counted as barrier events.
 - The AST edit-distance metric is Levenshtein distance over a linearized
   canonical-AST node sequence, not true Zhang-Shasha tree edit distance —
   a cheaper proxy that is reasonable for small single-block diffs but can
@@ -414,7 +454,8 @@ disclosed here rather than assumed away.
 ## Pending items before this draft is submission-ready
 
 - [ ] Run the real circle_packing experiment (`WEEK3_SETUP.md`) — unblocks §5, §6, part of §7, the Abstract's finding sentence, and the Title choice.
-- [ ] Run the Week 4 elite-band-vs-single-winner ablation — unblocks Contribution 4, §3.4's elite-band rule, and part of §6.
+- [ ] Run the matched single-winner / elite-band experiment (`WEEK3_SETUP.md` §5) — unblocks Contribution 4 and part of §6. (The §3.4 rule is now written and pre-registered; the *results* are what remain.)
+- [ ] Measure tokens/call and fill `PREREGISTRATION.md` §2 (target generations, token cap) *before* launch; then fill §5's budget TODOs from the real numbers.
 - [ ] Re-run `pytest tests/integration -v` to confirm the B08 case for real — closes the one open row in §4/§6.4.
 - [ ] Final citation-check pass on every reference in §2 immediately before submission (see the citation-checking note there).
 - [ ] Pick and record: license for the public repo, exact model access date range, arXiv category/endorsement plan (paper guide §4.2–4.3).

@@ -33,9 +33,18 @@ class RunCheckpoint:
     task_name: str
     seed_base: int
     next_generation_index: int
+    # For a single-winner run (band_size == 1) these three describe the
+    # incumbent. For an elite-band run they describe the band's BEST member,
+    # kept only for at-a-glance inspection and backward compatibility --
+    # `band` below is the authoritative resume state.
     parent_src: str
     parent_id: str | None
     best_fitness: float | None
+    # Added Week 3 Day 16 (elite-band ablation). Defaults keep every
+    # pre-existing checkpoint file (which lacks these keys) loadable: a
+    # missing `band` means "reconstruct a one-member band from parent_*".
+    band_size: int = 1
+    band: list[dict] | None = None  # delta.selection.Elite rows, ORDER PRESERVED
 
 
 def save(path: Path, ckpt: RunCheckpoint) -> None:

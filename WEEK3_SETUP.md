@@ -1,128 +1,159 @@
-# Week 3 setup — run this on your WSL2 box
+# Week 3 setup (v2, rewritten Day 16) — run this on your WSL2 box
 
-Everything referenced here (checkpoint/resume, the budget-aware CLI, the
-B08 tests) was written and unit-tested in a session with no Docker binary
-and no `GROQ_API_KEY` (confirmed, not assumed). 129/129 unit+adv tests
-green (`pytest` from repo root). What's still untested is anything that
-needs a real Docker daemon and a real Sigma budget — that's what this file
-walks through, same spirit as `WEEK2_SETUP.md`.
+Everything here was written and unit-tested in a session with **no Docker
+binary and no `GROQ_API_KEY`** (confirmed, not assumed). 194 unit + ADV tests
+pass there. What only your machine can verify — real Docker, real Groq — is
+called out in each step. Same rule as `WEEK2_SETUP.md`: if a live check fails,
+that is real signal about your setup or about an assumption, not something to
+paper over.
 
-## 0. Decide the call-budget question before spending any real quota
+## Why v1 of this file was replaced
 
-Read this before running anything below — it changes what number you pass
-to `--generations`.
+The Day-15 review found three problems that would have wasted the real run:
 
-`research-program-guide` §1.5 sizes the experiment as "population 40,
-generations 25 → 1,000 mutation calls per run." That math assumes a
-population sampled each generation. Stage 1's actual `run_generations()`
-(`delta/loop.py`) is single-winner hill-climbing: **one Sigma call per
-generation attempt** (plus up to `max_retries_per_generation` extra calls
-if the admission gates reject a proposal). There is no population
-dimension in this loop — "generations=25" taken literally would run only
-25 proposals total, a far smaller experiment than the guide intends.
+1. **The token cap, not the request cap, is probably the binding free-tier
+   limit.** `sigma/budget.py` counted only requests and assumed ~900/day was
+   the constraint. Groq's free tier also caps *tokens/day* (200K for
+   `gpt-oss-120b` per `STATUS.md`, as of 2026-09-17 — verify on your account).
+   The circle_packing prompt alone is ~870 input tokens; with reasoning and
+   output that is plausibly ~1,200–2,500 tokens/call, i.e. **~80–160
+   calls/day**, not 900. *(An estimate — step 3 measures it.)*
+2. **`--generations 600` did not mean what v1 said.** It meant "600 *more*
+   per invocation", and arms ran strictly one after another, so seed 0 would
+   have eaten every day's quota while seeds 1000/2000 starved, and re-running
+   the same command would have given seed 0 another 600. Now:
+   `--target-generations N` is a *total per arm*, and arms advance
+   round-robin so any early stop leaves them matched.
+3. **The elite-band arm did not exist**, and its stated motivation ("noise
+   robustness") does not apply to a deterministic fitness. It now exists
+   (`delta/selection.py`, k=1 ≡ single-winner) and is framed as an
+   *exploration* test. See `PREREGISTRATION.md`.
 
-Day 15's real binpacking run is your only real data point so far: 5
-generations consumed 8 Sigma calls (896 → 888 remaining), i.e. **~1.6
-calls per generation** on that run. Using that ratio, matching the guide's
-*intended total effort* (not its literal generation count) means:
+Also fixed on the way: **P_0 is now scored in the sandbox at generation −1.**
+Before, the first admitted child was adopted even if it scored *below* the
+seed, and "did P_0 improve?" had no measured denominator.
 
-```
-1,000 calls (guide's target)  /  1.6 calls-per-generation  ≈  625 generations per run
-```
+## 1. Apply the patch
 
-**Recommendation:** pass `--generations` in that neighborhood (round to
-600 or whatever's convenient) as the *target total* for each seed-arm, not
-as one invocation's argument — `--generations` means "attempt this many
-more generations this invocation," and the CLI now resumes automatically
-across multiple invocations (see §2). Whatever you decide, **write it down
-now** and state it plainly in the paper's Methods section, next to the
-Levenshtein-for-Zhang-Shasha and Groq-for-Gemini substitutions already
-disclosed in `STATUS.md` — this is the same kind of honest, scoped
-reinterpretation, not a silent one. Two reasonable alternatives if 625
-generations/arm doesn't fit your week:
-
-- Fewer generations per arm, stated as a smaller compute budget than the
-  guide's reference point (same honesty move §1.5 itself makes about
-  n=26 vs. AlphaEvolve's compute).
-- Fewer seeds (2 instead of 3) rather than fewer generations per seed, if
-  you'd rather each arm get a real chance to show improvement over many
-  generations than run three short arms.
-
-Whatever you pick, the daily request cap (`sigma/client.py`'s
-`DEFAULT_DAILY_REQUEST_CAP = 900`, conservative) means a single seed-arm
-at ~600-1,000 generations will very likely span more than one day even on
-its own — budget for that.
-
-## 1. Pull this session's new files into your clone
-
-New: `delta/checkpoint.py`, `tests/unit/test_checkpoint.py`,
-`tests/unit/test_loop_resume.py`, `tests/unit/test_run_stage1_cli.py`.
-Modified: `delta/loop.py` (new optional resume/stop-exception parameters,
-fully backward compatible — nothing about the Week 2 behavior changed
-when these aren't passed), `scripts/run_stage1.py` (auto-resume,
-`--seeds`, `--restart`), `tests/unit/test_launcher.py` and
-`tests/integration/test_sandbox_smoke.py` (B08), `tests/adv/COVERAGE.md`,
-`STATUS.md`. Confirm:
+From your clone (expected base: commit `36ae5c9`):
 
 ```bash
-pytest -v   # should show 129 passed, all in tests/unit and tests/adv
+cd ~/fbebc-research                      # adjust to your clone path
+git status --short                       # should print nothing (or only untracked files)
+git rev-parse --short HEAD               # expect 36ae5c9
+cp /path/to/fbebc-week3-day16.patch .    # e.g. from /mnt/c/Users/<you>/Downloads/
+git apply --check fbebc-week3-day16.patch && git apply --stat fbebc-week3-day16.patch
+git apply fbebc-week3-day16.patch
 ```
 
-## 2. Run the real circle_packing experiment
+If `--check` fails, paste the output — don't force it. (Fallback: the `.tar.gz`
+overwrites the touched files wholesale; only use it if you have no local
+changes you want to keep in those files.)
+
+## 2. Verify (unit, then the live Docker suite)
 
 ```bash
-export GROQ_API_KEY=...   # never on the command line, never committed
+python -m pytest -q                       # expect: 194 passed
+python -m pytest tests/integration -v     # needs Docker; expect 10 passed
+```
 
+The integration run also closes the one open item from Day 15:
+`test_no_host_secrets_reachable_inside_container` (B08) has never run against
+a real daemon.
+
+## 3. Measure real token usage (small, throwaway run)
+
+```bash
+export GROQ_API_KEY=...        # never on the command line, never committed
+mkdir -p runs
+python scripts/run_stage1.py --task circle_packing --conditions single_winner \
+    --generations 8 --ledger runs/measure.db --verbose
+python scripts/summarize_ledgers.py runs/measure.db
+python scripts/usage_report.py --tpd <YOUR_TPD> --rpd <YOUR_RPD> --days 8 --arms 6
+```
+
+Read `<YOUR_TPD>` / `<YOUR_RPD>` off your own Groq account's limits page for
+`openai/gpt-oss-120b` (console.groq.com/docs/rate-limits or the account
+limits page) — do not trust the numbers in `STATUS.md`; free-tier limits move.
+`runs/measure.db` is throwaway (pipeline + measurement only, never reported).
+
+This is also the **first live circle_packing generation ever run** — watch for
+anything odd (all-`stalled` generations, a huge share of `E_*` rejections, the
+baseline not being 2.1667).
+
+The output of step 3 decides the experiment size (target generations per arm)
+— see `PREREGISTRATION.md` §2.
+
+## 4. Pre-register and freeze
+
+1. Fill the `[FILL: …]` fields in `PREREGISTRATION.md` (target N, token cap,
+   the arithmetic behind N).
+2. Commit **everything** — the working tree must be clean at launch so
+   `runmeta.json` records `git_dirty: false`:
+
+```bash
+git add -A && git commit -m "Week 3 Day 16: matched-arm experiment machinery + pre-registration"
+git tag prereg-week3
+```
+
+## 5. Launch the matched experiment
+
+Template (substitute N and the token cap from step 4):
+
+```bash
 python scripts/run_stage1.py --task circle_packing \
-    --seeds 0,1000,2000 --generations 600 \
-    --ledger runs/week3.db
+    --conditions single_winner,elite_band --band-size 3 \
+    --seeds 0,1000,2000 --target-generations <N> --round-size 10 \
+    --ledger runs/week3.db --daily-token-cap <CAP>
 ```
 
-This creates `runs/week3.seed0.db`, `runs/week3.seed1000.db`,
-`runs/week3.seed2000.db` (and a matching `.checkpoint.json` next to each).
-It runs seed 0 for up to 600 generations, then seed 1000, then seed 2000
-— **stopping the whole batch, not just the current arm**, the instant the
-shared daily budget is exhausted (Groq's cap applies to your account, not
-per seed-arm). When that happens the script prints which seed it stopped
-on and exits with code 3.
+This creates six ledgers — `runs/week3.{single_winner,elite_band}.seed{0,1000,2000}.db`
+— each with a `.checkpoint.json`, plus `runs/week3.runmeta.json`.
 
-**Re-run the exact same command on later days** (same `--ledger`, same
-`--seeds`, same `--generations`) to continue — each arm resumes from its
-own checkpoint automatically; you do not need to track how many
-generations already ran or reduce `--generations` yourself. Pass
-`--restart` only if you deliberately want to throw away progress and
-start an arm over from `P_0`.
-
-Watch the per-generation output as it runs — `outcome=stalled` for many
-consecutive generations in a row is worth a look before you let it run
-unattended for hours (it likely means the applicator/contract checks are
-rejecting most of what Σ proposes for this task; `sanitize_rejection`'s
-feedback should usually let Σ correct course within a few retries).
-
-## 3. Run the scoped ADV suite for real
+**Daily routine:** re-run the *identical* command each day. It resumes every
+arm from its checkpoint, continues round-robin, and stops (exit code 3) the
+moment the provider's budget is hit. Then:
 
 ```bash
-pytest tests/adv -v          # host-only, already green without Docker
-pytest tests/integration -v  # needs your live Docker daemon
+python scripts/summarize_ledgers.py runs/week3.*.db     # paste this
+python scripts/usage_report.py --tpd <TPD> --rpd <RPD>  # tokens/call, drift
 ```
 
-Everything except the new B08 test already passed for real on 2026-09-23
-per `STATUS.md`'s Day 15 entry (9/9 at the time). The one thing that
-hasn't run against a real daemon yet is
-`test_no_host_secrets_reachable_inside_container`
-(`tests/integration/test_sandbox_smoke.py`) — expect it to pass; if it
-doesn't, that's real signal about your Docker setup, not a code bug to
-paper over (same rule `WEEK2_SETUP.md` states for the other isolation
-tests).
+Things worth a look before leaving it unattended: `outcome=stalled` streaks
+(gates rejecting almost everything), a high `E_NO_PROPOSAL` share (Σ not
+following the output format), `scored-invalid packings` dominating, or
+`ledger chain: FAILED` (stop and investigate — do not `--restart`).
 
-## 4. What this does and doesn't tell you about resume correctness
+`--restart` archives an arm's ledger and checkpoint (renamed `*.bak-<stamp>`,
+never deleted). Use it only deliberately.
 
-`tests/unit/test_loop_resume.py` proves, with fakes, that interrupting a
-run and resuming it from a checkpoint produces byte-identical
-`final_src`/`best_fitness` to an uninterrupted run of the same
-generations. It does **not** exercise a real `BudgetExceeded` from the
-live Groq API — the first genuinely multi-day run in §2 is what actually
-proves this end to end. If day 2's resumed run doesn't pick up where day
-1 left off (wrong generation number, wrong parent, budget message
-missing), stop and debug before trusting any of the run's numbers; don't
-just restart with `--restart` and lose the data.
+Do **not** edit anything under `delta/`, `harness/`, `sigma/` after launch
+without logging it in `PREREGISTRATION.md`'s deviation log — the manifest
+digest in the ledger would change across the edit.
+
+## 6. Live ADV suite
+
+Covered in step 2 (`tests/integration`, 10 cases); re-run it at the end of
+the experiment as well, on the exact code that produced the results.
+
+## 7. What the resume tests do and don't prove
+
+`tests/unit/test_loop_band.py::test_band_resume_reproduces_uninterrupted_run_exactly`
+and `test_multiday_matched_run_end_to_end_with_fakes` prove, with fakes, that
+interrupt/resume reproduces an uninterrupted run (including which parent the
+band sampled each generation) and that the multi-day round-robin driver keeps
+arms matched. They do **not** exercise a real Groq 429 or a real
+`BudgetExceeded` — the first genuine multi-day run does. If day 2 does not
+pick up exactly where day 1 stopped (wrong generation, wrong band, missing
+budget message), stop and debug before trusting any numbers.
+
+## 8. End of run
+
+```bash
+cp ~/.fbebc_sigma_budget.usage.jsonl runs/week3.usage.jsonl   # total calls/tokens for §5 of the paper
+python scripts/summarize_ledgers.py runs/week3.*.db > runs/week3.summary.txt
+```
+
+Ledgers are **gitignored** (`*.db`). Archive them separately (a GitHub
+release asset or Zenodo deposit) for the public repo — they are the
+reproducibility artifact, since Σ is not seeded.

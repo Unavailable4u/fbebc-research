@@ -40,3 +40,30 @@ def test_default_path_for_ledger_derives_a_sibling_json_path(tmp_path):
     ckpt_path = checkpoint_mod.default_path_for_ledger(ledger_path)
     assert ckpt_path.name == "run_seed0.db.checkpoint.json"
     assert ckpt_path.parent == ledger_path.parent
+
+
+# --- Week 3 Day 16: band state ------------------------------------------------
+
+def test_band_round_trips_and_preserves_order(tmp_path):
+    path = tmp_path / "run.checkpoint.json"
+    band = [
+        {"src": "b", "clone_id": "c2", "fitness": 2.0, "fingerprint": "fb"},
+        {"src": "a", "clone_id": "c1", "fitness": 1.0, "fingerprint": "fa"},
+    ]
+    ckpt = checkpoint_mod.RunCheckpoint(
+        task_name="circle_packing", seed_base=0, next_generation_index=9, parent_src="b",
+        parent_id="c2", best_fitness=2.0, band_size=3, band=band,
+    )
+    checkpoint_mod.save(path, ckpt)
+    assert checkpoint_mod.load(path) == ckpt
+
+
+def test_checkpoint_written_before_band_support_still_loads(tmp_path):
+    import json
+    path = tmp_path / "old.checkpoint.json"
+    path.write_text(json.dumps({
+        "task_name": "binpacking", "seed_base": 0, "next_generation_index": 5,
+        "parent_src": "x", "parent_id": "id", "best_fitness": -28.0,
+    }))
+    loaded = checkpoint_mod.load(path)
+    assert loaded.band is None and loaded.band_size == 1 and loaded.best_fitness == -28.0

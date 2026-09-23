@@ -31,7 +31,7 @@ from pathlib import Path
 from delta.admission.applicator import DIFF as DIFF_HUNK_RE
 from delta.admission.tasks import TaskSpec, get_task
 
-from .budget import DailyBudget
+from .budget import BudgetExceeded, DailyBudget
 from .prompts import build_messages
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -49,8 +49,24 @@ DEFAULT_DAILY_REQUEST_CAP = 900
 DEFAULT_BUDGET_PATH = Path.home() / ".fbebc_sigma_budget.json"
 
 
+# A 429 whose Retry-After exceeds this is a long-window limit (daily
+# tokens/requests), not a per-minute one -- sleeping through it inside a
+# single propose_diff() call would just hang the run. Surface it as a clean
+# BudgetExceeded stop instead (the loop checkpoints and the CLI exits 3).
+MAX_429_SLEEP_S = 120.0
+
+
 class SigmaError(RuntimeError):
     pass
+
+
+class SigmaProposalError(SigmaError):
+    """The API call itself succeeded but the reply was unusable (empty
+    content from reasoning exhaustion, or no SEARCH/REPLACE hunk). Distinct
+    from a plain SigmaError (network / 4xx / bad key), which must still
+    crash the run loudly: delta/loop.py treats THIS type as one wasted
+    attempt (logged as E_NO_PROPOSAL, retried) and everything else as fatal.
+    """
 
 
 class SigmaClient:
@@ -60,6 +76,8 @@ class SigmaClient:
         model: str = MODEL,
         daily_request_cap: int = DEFAULT_DAILY_REQUEST_CAP,
         budget_path: Path = DEFAULT_BUDGET_PATH,
+        daily_token_cap: int | None = None,
+        usage_log_path: Path | None = None,
     ):
         self.api_key = api_key or os.environ.get("GROQ_API_KEY")
         if not self.api_key:
@@ -68,7 +86,34 @@ class SigmaClient:
                 "environment variable. Never hardcode it in source."
             )
         self.model = model
-        self.budget = DailyBudget(budget_path, daily_request_cap)
+        self.budget = DailyBudget(budget_path, daily_request_cap, daily_token_cap)
+        # One JSON line per API response that carried a `usage` block, so
+        # scripts/usage_report.py can measure real tokens/call instead of
+        # guessing. Defaults to a sibling of the budget file (so tests that
+        # point budget_path at tmp_path never touch the real home directory).
+        bp = Path(budget_path)
+        self.usage_log_path = Path(usage_log_path) if usage_log_path else bp.with_name(bp.stem + ".usage.jsonl")
+
+    def _record_usage(self, payload: dict, finish_reason) -> None:
+        usage = payload.get("usage")
+        if not isinstance(usage, dict):
+            return
+        prompt = usage.get("prompt_tokens") or 0
+        completion = usage.get("completion_tokens") or 0
+        total = usage.get("total_tokens") or (prompt + completion)
+        reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+        self.budget.record_tokens(total)
+        row = {
+            "ts_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "model": self.model, "prompt_tokens": prompt, "completion_tokens": completion,
+            "reasoning_tokens": reasoning, "total_tokens": total, "finish_reason": finish_reason,
+        }
+        try:
+            self.usage_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.usage_log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(row) + "\n")
+        except OSError:
+            pass  # usage logging is diagnostic; never let it break a run
 
     def propose_diff(
         self,
@@ -137,6 +182,9 @@ class SigmaClient:
                 with urllib.request.urlopen(req, timeout=timeout_s) as resp:
                     payload = json.loads(resp.read())
                 choice = payload["choices"][0]
+                # Record usage BEFORE validating content: an empty-content
+                # (reasoning-exhausted) reply still burned tokens against TPD.
+                self._record_usage(payload, choice.get("finish_reason"))
                 content = choice.get("message", {}).get("content") or ""
                 if not content:
                     finish_reason = choice.get("finish_reason")
@@ -145,7 +193,7 @@ class SigmaClient:
                         .get("completion_tokens_details", {})
                         .get("reasoning_tokens")
                     )
-                    raise SigmaError(
+                    raise SigmaProposalError(
                         f"empty content from {self.model} "
                         f"(finish_reason={finish_reason!r}, reasoning_tokens={reasoning_tokens!r}, "
                         f"max_tokens={max_tokens}, reasoning_effort={reasoning_effort!r}). "
@@ -154,7 +202,7 @@ class SigmaClient:
                         f"reasoning_effort further."
                     )
                 if not DIFF_HUNK_RE.search(content):
-                    raise SigmaError(
+                    raise SigmaProposalError(
                         f"model response contained no SEARCH/REPLACE hunk "
                         f"(got {len(content)} chars): {content[:300]!r}"
                     )
@@ -163,6 +211,11 @@ class SigmaClient:
                 detail = e.read().decode("utf-8", "replace")[:500]
                 if e.code == 429:
                     wait = _retry_after_seconds(e, default=10.0)
+                    if _is_long_window_limit(detail) or wait > MAX_429_SLEEP_S:
+                        raise BudgetExceeded(
+                            f"Groq 429 on a daily/long-window limit "
+                            f"(Retry-After={wait:.0f}s): {detail}"
+                        ) from e
                     time.sleep(wait)
                     last_err = SigmaError(f"Groq 429 rate limited: {detail}")
                     continue
@@ -171,6 +224,14 @@ class SigmaClient:
                 last_err = SigmaError(f"network error calling Groq: {e}")
                 time.sleep(2**attempt)
         raise last_err or SigmaError("exhausted retries calling Groq")
+
+
+def _is_long_window_limit(detail: str) -> bool:
+    """Groq's 429 bodies name the exhausted limit, e.g. '... on tokens per
+    day (TPD): Limit 200000, Used ...' -- as opposed to '(TPM)'/'(RPM)'
+    per-minute limits, which are worth a short sleep-and-retry."""
+    d = detail.lower()
+    return "per day" in d or "(tpd)" in d or "(rpd)" in d
 
 
 def _retry_after_seconds(http_error: urllib.error.HTTPError, default: float) -> float:

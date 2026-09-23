@@ -8,3 +8,5 @@ work/*
 !work/.gitkeep
 sigma/buffer/*
 !sigma/buffer/.gitkeep
+runs/*.checkpoint.json
+runs/*.bak-*

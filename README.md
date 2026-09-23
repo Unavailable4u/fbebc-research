@@ -34,18 +34,21 @@ delta/
   loop.py                      run_generations(): the actual per-generation cycle, with
                                 checkpoint/resume + graceful daily-budget-exhaustion stop
   checkpoint.py                explicit resume-state file for multi-day runs (see loop.py)
+  selection.py                 EliteBand: k=1 is single-winner, k>1 the elite band (the ablation's one parameter)
 harness/                       supervisor/child process split that runs inside the container
 sigma/
   client.py                    Sigma LLM client (Groq, disclosed substitution for the guide's Gemini pin)
-  budget.py                    local daily request budget, checked before every network call
+  budget.py                    local daily request + token budget, checked before every network call
   prompts.py                   system prompt + per-task objective descriptions
 seed/
   binpacking/candidate.py       P_0 for the warm-up task
   circle_packing/candidate.py   P_0 for the primary task   (research-program-guide §1.2, verbatim)
 scripts/
-  run_stage1.py                 CLI entrypoint: proposes, admits, evaluates, adopts, repeats
+  run_stage1.py                 CLI entrypoint: matched-arm, round-robin, multi-day resumable runs
+  usage_report.py               measure real Sigma tokens/call; project experiment size from the daily caps
+  summarize_ledgers.py          read-only per-arm progress, rejection taxonomy, matched-generation comparison
 tests/
-  unit/                         129 tests total (with tests/adv), no LLM/Docker calls
+  unit/                         194 tests total (with tests/adv), no LLM/Docker calls
   adv/                          scoped adversarial suite, host-only (see COVERAGE.md)
   integration/                  needs a real Docker daemon (see WEEK2_SETUP.md/WEEK3_SETUP.md)
 ```
@@ -54,7 +57,7 @@ tests/
 
 ```bash
 pip install pytest
-python3 -m pytest -v                  # 129 passed — unit + adv, no Docker/LLM needed
+python3 -m pytest -v                  # 194 passed — unit + adv, no Docker/LLM needed
 pytest tests/integration -v           # needs a real Docker daemon, see WEEK2_SETUP.md
 ```
 
@@ -63,8 +66,12 @@ pytest tests/integration -v           # needs a real Docker daemon, see WEEK2_SE
 ```bash
 export GROQ_API_KEY=...
 python scripts/run_stage1.py --task binpacking --generations 5   # pipeline smoke test
-python scripts/run_stage1.py --task circle_packing --seeds 0,1000,2000 --generations 600
+# the real experiment -- N comes from measuring tokens/call first (WEEK3_SETUP.md §3-4):
+python scripts/run_stage1.py --task circle_packing --conditions single_winner,elite_band \
+    --band-size 3 --seeds 0,1000,2000 --target-generations <N> --ledger runs/week3.db
 ```
 
-See `WEEK3_SETUP.md` before running the second command for real — it
-covers the call-budget sizing decision and the multi-day resume workflow.
+`--target-generations` is a TOTAL per arm (re-run the identical command daily to
+continue); `--generations` means "N more" and is for smoke tests only. See
+`WEEK3_SETUP.md` for the measure -> pre-register (`PREREGISTRATION.md`) -> launch
+workflow, and why the run is sized by tokens/day rather than requests/day.

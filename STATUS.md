@@ -240,7 +240,7 @@ empirical companion, same pattern as the other Tier B smoke tests). See
 Integration suite now has 10 cases (was 9), still requires your Docker
 daemon to run.
 
-**Open question for you, not resolved here:** the research-program-guide's
+**(Resolved 2026-09-24 by the Day 16 patch — see the section above; left here for the record.) Open question:** the research-program-guide's
 §1.5 call-budget math ("population 40, generations 25 = 1,000 mutation
 calls per run") assumes a population dimension this loop doesn't have —
 Stage 1's actual `run_generations()` is single-winner hill-climbing, one
@@ -254,15 +254,93 @@ discipline as the Levenshtein-for-Zhang-Shasha and Groq-for-Gemini
 substitutions already logged above), not something silently assumed —
 see `WEEK3_SETUP.md`'s first section before starting Day 16.
 
+## Week 3, Day 15 review → Day 16 patch (2026-09-24): three problems found before the real run, fixed and unit-tested
+
+A read-through of the repo against the three guides, before spending any real
+circle_packing quota, found three things that would have wasted or distorted
+the Week 3 experiment. All fixed in one patch; **194/194 unit+ADV tests
+green (was 129)**, and everything is still "written here, validate on your
+machine" — no Docker binary and no `GROQ_API_KEY` in the authoring session
+(confirmed, not assumed).
+
+**1. The free-tier *token* cap probably binds before the request cap — an
+unmeasured assumption, now measured by tooling.** `sigma/budget.py`'s own
+docstring asserted the ~1,000 req/day cap was "comfortably the binding
+constraint for this pipeline's small per-request token counts." That was
+never measured. The circle_packing prompt is ~870 input tokens (chars/4
+estimate, before reasoning/output), so at ~1,200–2,500 total tokens/call the
+200K tokens/day figure recorded above (2026-09-17, **unverified on your
+account**) would allow only ~80–160 calls/day. Consequences, if it holds: the
+literal "3 seeds × 600 generations" plan is many days beyond the 4-week cap,
+and the experiment must be sized by tokens. Changes: `sigma/budget.py` tracks
+tokens (and can enforce an optional `--daily-token-cap`); `sigma/client.py`
+logs every response's `usage` block to `~/.fbebc_sigma_budget.usage.jsonl`
+and converts a daily-limit 429 (body says "per day"/TPD/RPD, or Retry-After >
+120 s) into `BudgetExceeded` instead of sleeping through it;
+`scripts/usage_report.py` prints measured tokens/call and projects
+generations/day and generations/arm. **Nothing here has touched the live API.**
+
+**2. `--generations` semantics and arm starvation.** The CLI's `--generations
+N` meant "N *more* this invocation", contradicting `WEEK3_SETUP.md` v1 ("re-run
+the exact same command"), and arms ran strictly sequentially — seed 0 would
+have consumed every day's quota. Now `--target-generations N` is a total per
+arm; all arms advance round-robin in chunks of `--round-size` (default 10) so
+a quota stop leaves them matched to within a chunk; `--generations` remains
+as the legacy smoke-test mode. `--restart` now *archives* (renames) an arm's
+ledger+checkpoint instead of appending new records into an old ledger.
+Each invocation appends the git commit (+ tracked-dirty flag) to
+`<ledger>.runmeta.json`, so the paper can state whether the code was
+identical across days.
+
+**3. Elite-band arm undefined; "noise" framing wrong for this task; `P_0`
+never scored.**
+- `delta/selection.py` (new): one `EliteBand` class, one parameter `k`;
+  k=1 is exactly the previous single-winner rule (the pre-existing loop tests
+  pass unchanged), k>1 is a top-k archive of distinct (canonical-AST
+  fingerprint) attested-valid candidates, parent sampled uniformly,
+  deterministic per `(seed_base, generation)` so resume reproduces
+  uninterrupted runs. Rule frozen in `PREREGISTRATION.md`.
+  **Disclosed simplification:** fixed integer band width, not the Phase1
+  guide's fairness-bounded, scheduled band width (that is Phase 2/3).
+- circle-packing fitness is **deterministic**, so the ablation tests
+  *exploration*, not noise robustness. `DRAFT.md` §3.4/§7 corrected.
+- `delta/loop.py`: `P_0` is now evaluated in the sandbox at generation −1
+  (`evaluate_baseline=True`, on fresh runs only). Previously the first
+  admitted child was adopted even when it scored *below* the seed. (Day 15's
+  binpacking smoke run predates this and had no baseline — it is
+  pipeline-debugging only and is not reported.)
+- Σ replies that contain no usable SEARCH/REPLACE block
+  (`SigmaProposalError`) are now logged as **`E_NO_PROPOSAL`** and retried
+  instead of crashing the run (auth/network errors still crash loudly).
+  Reported separately from gate rejections; not a barrier event.
+- Every ledger row now carries `ablation_config` (`single_winner_k1` /
+  `elite_band_k3`), which was a dead schema column until now.
+- `scripts/summarize_ledgers.py` (read-only): per-arm progress, measured Σ
+  calls/generation, baseline vs. best, running best, rejection taxonomy, and
+  a matched-generation comparison per seed with individual values only (no
+  mean/sd/p-value).
+
+**Not verified by the authoring session (needs your machine):** the token
+estimate itself; Groq's real limits and 429 body wording (the daily-limit
+detection matches on "per day"/"(TPD)"/"(RPD)" and Retry-After > 120 s —
+verify against a real 429 if you ever see one); the whole patch against live
+Docker + Groq. The end-to-end multi-day resume path is tested with fakes
+only (`test_multiday_matched_run_end_to_end_with_fakes`).
+
+**Known gaps deliberately left:** `E_NO_PROPOSAL` retries still consume Σ
+budget like any call; `max_tokens`/`reasoning_effort` are not yet CLI flags
+(revisit only if the measurement shows truncation or waste); ledgers are
+gitignored and must be archived separately for the public release.
+
 ## Not yet built / not yet run for real (Week 3 remainder onward)
 
 - **The circle_packing experiment itself** (Week 3, Day 16-20) — Day 15's
   real end-to-end run used binpacking (pipeline-debugging only, per
   §1.2/§1.4, not reported in the paper) and the sanity check above only
   scored `P_0` once, host-side, no generations run. Nothing has evolved
-  circle_packing yet. Needs: the population/generations call-budget
-  decision above resolved, then your Docker + `GROQ_API_KEY` machine —
-  see `WEEK3_SETUP.md`.
+  circle_packing yet. Needs: the Day 16 token measurement
+  (`WEEK3_SETUP.md` §3) → fill and commit `PREREGISTRATION.md` (§4), then
+  your Docker + `GROQ_API_KEY` machine for the matched run (§5).
 - **The newly-added B08 test, run for real against a live container** —
   everything else in `tests/integration` (including C04/C06/C10) already
   passed for real on 2026-09-23 per this file's own Day 15 entry above
@@ -270,16 +348,18 @@ see `WEEK3_SETUP.md`'s first section before starting Day 16.
   is new since then and has only run host-side-adjacent (i.e. not at
   all against a real daemon) — one more `pytest tests/integration -v`
   on your machine closes this out; see `WEEK3_SETUP.md`.
-- **Elite-band vs single-winner ablation** — Week 4, tagged via the
-  ledger's `ablation_config` column (present in the schema, unused until
-  then).
+- **Elite-band vs single-winner ablation** — the arm is now *built* and
+  unit-tested (Day 16 patch above) and runs **concurrently** with the
+  single-winner arms (matched, round-robin), not as a separate Week 4
+  pass; tagged via the ledger's `ablation_config` column. Not yet run for
+  real.
 
 ## Stage 1 exit checklist (research-program-guide §1.6) — progress
 
 - [ ] `P_0` improves measurably over generations on circle packing — blocked on the real experiment (see above)
 - [x] Manifest integrity mechanism built and unit-tested (full-run claim comes once real generations run)
 - [x] The 8-10 case adversarial suite passes — 13/17 Tier A+C cases tested (exceeds target), Tier A via unit tests, Tier C via unit tests + all 9 integration cases (incl. C04/C06/C10) live-verified 2026-09-23; new B08 bonus test still needs its first live-container run
-- [ ] Elite-band vs single-winner ablation — not started (Week 4)
+- [ ] Elite-band vs single-winner ablation — machinery built + pre-registered (`PREREGISTRATION.md`); not yet run
 - [x] Ledger chain built and unit-tested (hash chain, tamper detection, lineage/generation queries all verified)
 - [x] Sandbox hardening verified on a real Docker daemon
 - [ ] Repo clean enough to open-source — in progress

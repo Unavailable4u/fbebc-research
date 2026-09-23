@@ -23,6 +23,12 @@ REJECTION_TAXONOMY = {
     "E_SCHEMA_VIOLATION": "post",
     "E_ATTESTATION_FAILURE": "post",
     "E_TIMING_ANOMALY": "post",
+    # Not a gate: Sigma answered but produced no usable SEARCH/REPLACE block
+    # (empty reasoning-exhausted reply, or prose with no hunk). Logged by
+    # delta/loop.py so the rejection taxonomy in the paper accounts for
+    # EVERY spent Sigma call, and deliberately NOT in BARRIER_EVENT_CODES:
+    # a model that fails to follow the output format is not attacking anything.
+    "E_NO_PROPOSAL": "sigma",
 }
 
 # Rejection codes that count as a "barrier event" per Appendix B — the
