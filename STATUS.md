@@ -90,6 +90,84 @@ header in `sigma/client.py`; there's a regression test for it in
 
 108/108 tests green (86 from before + 22 new).
 
+## Week 3, Day 15 — `/scratch` permission bug found and fixed via new ADV cases, first real end-to-end run (2026-09-23)
+
+**Image re-pinned again:** `PINNED_IMAGE` is now
+`python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9`,
+superseding the 2026-09-17 digest recorded above. Record whichever digest
+is live at the time you generate the paper's reported results — don't
+assume the two entries in this file mean the same image was used
+throughout.
+
+**New ADV cases added** (`tests/adv/test_tier_a_boundary.py` — A07;
+`tests/adv/test_tier_c_reward_hacking.py` — C09;
+`tests/integration/test_adv_tier_c_runtime.py` — C04, C06, C10), bringing
+the scoped suite to 13/17 Tier A+C cases directly tested (exceeds the
+8–10 target; see `tests/adv/COVERAGE.md` for the full tally and the 4
+disclosed-N/A cases: C01, C03, C07, C08). 116/116 unit+adv tests green
+immediately, no Docker needed for those.
+
+**Real bug found by the new suite, not flakiness:** `test_c04` failed on
+first run with the child process exiting nonzero. Root cause: the
+`/scratch` tmpfs was mounted `mode=0700` with no `uid`/`gid`, so it was
+owned by root, while the container runs `--user 65534:65534` — that user
+had zero permissions on it. Any candidate touching `/scratch` (including
+`supervisor.py`'s own best-effort debug copy of the result envelope,
+silently swallowed by its `except OSError`) had been failing unnoticed
+since the 2026-09-17 hardening verification; no test before C04 ever
+exercised a candidate actually writing there. Fixed in
+`delta/evaluation/launcher.py` by adding `uid=65534,gid=65534` to the
+tmpfs mount options, keeping `mode=0700` so `/scratch` stays private to
+the container's own user rather than becoming world-writable like
+`/tmp`. `tests/unit/test_launcher.py` doesn't assert on the exact tmpfs
+string, so nothing there needed updating.
+
+A second, unrelated bug surfaced once the first was fixed: the ADV
+patch's `_work_dir()` test helper always names its directory `work`
+under `tmp_path`; `test_c04` calls it twice with the same `tmp_path` (one
+directory per container run), so the second call's `mkdir()` collided
+with the first (`FileExistsError`). Fixed by giving `_work_dir()` an
+optional `name` parameter (default unchanged, so `test_c06`/`test_c10`'s
+single calls are unaffected) and passing `name="work1"`/`name="work2"`
+at `test_c04`'s two call sites.
+
+With both fixed: **9/9 integration tests pass**, including C04 now
+proving what it's actually meant to — that `--rm` plus a fresh `--tmpfs`
+prevents state from surviving across separate `docker run` invocations —
+rather than tripping a permission error before ever reaching that
+question. 125/125 tests total (116 unit/adv + 9 integration).
+
+**First real end-to-end run.** `python -m sigma.client` (live smoke
+test) confirmed a real Groq response for `gpt-oss-120b` parses against
+the applicator's hunk regex. Then `python scripts/run_stage1.py --task
+binpacking --generations 5`: Σ proposals, the applicator, the six-gate
+admission pipeline, the live sandbox, `score_binpacking`, and the ledger
+all executed in sequence for real, not mocked.
+
+| gen | outcome | fitness | why |
+|---|---|---|---|
+| 0 | improved | −30.0 | first candidate, no prior best to compare against |
+| 1 | kept | −33.0 | worse than −30, rejected |
+| 2 | improved | −30.0 | tie with current best, adopted per the tie-inclusive rule (`test_loop.py::test_equal_fitness_is_adopted_not_just_better`) |
+| 3 | kept | −35.0 | worse, rejected |
+| 4 | improved | −28.0 | new best |
+
+Final: best fitness −28.0 (28 bins), daily Σ budget 896→888. Every
+outcome label checks out exactly against `delta/loop.py`'s adoption rule
+(`fitness = -bins_used`; adopt iff `>= best_fitness`) — verified against
+the source line by line, not just plausible-looking. This is the warm-up
+(binpacking) pipeline-debugging run per §1.2 of the research-program-guide
+— **not** the circle_packing run the paper reports; that's still the
+next step.
+
+Also worth noting from the `sigma.client` smoke test (a separate
+standalone check, not part of the run above): its example proposal for
+circle_packing was `r *= 0.99` — a strictly worse mutation for that task
+specifically, since `score_packing` rewards larger radii and the seed
+grid has no overlap to fix. One data point on `gpt-oss-120b` free-tier's
+early proposal quality, potentially worth a line in the paper's
+qualitative discussion of generation-0 behavior.
+
 ## Not yet built (Week 3 onward)
 
 - **A real end-to-end generation run** — `scripts/run_stage1.py --task

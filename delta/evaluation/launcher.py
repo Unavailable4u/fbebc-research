@@ -65,7 +65,7 @@ def build_docker_command(
         "--ulimit", "nofile=128:128",
         "--ulimit", "fsize=33554432",
         "--ulimit", "core=0",
-        "--tmpfs", "/scratch:rw,nosuid,nodev,size=64m,mode=0700",
+        "--tmpfs", "/scratch:rw,nosuid,nodev,size=64m,uid=65534,gid=65534,mode=0700",
         "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=32m",
         "-v", f"{HARNESS_DIR}:/harness:ro",
         "-v", f"{work_dir}:/work:ro",

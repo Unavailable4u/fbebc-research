@@ -27,8 +27,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _work_dir(tmp_path, candidate_src: str, task_input: dict):
-    d = tmp_path / "work"
+def _work_dir(tmp_path, candidate_src: str, task_input: dict, name: str = "work"):
+    d = tmp_path / name
     d.mkdir()
     (d / "candidate.py").write_text(candidate_src, encoding="utf-8")
     (d / "task_input.json").write_text(json.dumps(task_input), encoding="utf-8")
@@ -72,11 +72,11 @@ def candidate_packing(n: int) -> list[tuple[float, float, float]]:
     return [(0.5, 0.5, r)] * n
 # EVOLVE-BLOCK-END: circle_packing
 """
-    work1 = _work_dir(tmp_path, write_memo, {"task": "circle_packing", "n": 1})
+    work1 = _work_dir(tmp_path, write_memo, {"task": "circle_packing", "n": 1}, name="work1")
     env1 = run_in_sandbox(work1, seed=1, run_index=0)
     assert env1["runs"][0]["status"] == "ok"
 
-    work2 = _work_dir(tmp_path, check_memo, {"task": "circle_packing", "n": 1})
+    work2 = _work_dir(tmp_path, check_memo, {"task": "circle_packing", "n": 1}, name="work2")
     env2 = run_in_sandbox(work2, seed=2, run_index=0)
     assert env2["runs"][0]["status"] == "ok"
     reported_radius = env2["runs"][0]["outputs"]["circles"][0][2]
