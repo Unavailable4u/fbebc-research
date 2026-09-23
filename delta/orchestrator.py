@@ -37,6 +37,31 @@ from .admission.static_gate import CapabilityDenied, check_block
 from .admission.tasks import TaskSpec
 from .integrity import manifest as manifest_mod
 
+# Phase1 §6's rule for what Sigma is allowed to see about a rejection:
+# describe what was wrong with ITS diff, never how the gate that caught it
+# works internally (no file/line of our own code, no mention of which
+# check ran). Every detail string currently produced across applicator.py /
+# contracts.py / static_gate.py already describes the candidate's OWN diff
+# (e.g. "SEARCH matches only outside an EVOLVE-BLOCK") rather than gate
+# internals, so passing exc.detail through is safe today. If you add a new
+# gate message later, keep that property.
+_HUMAN_PREFIX = {
+    "E_MALFORMED_DIFF": "Diff format problem",
+    "E_SYNTAX": "The edited code has a syntax error",
+    "E_BOUNDARY_VIOLATION": "Your edit touched text outside the allowed block",
+    "E_MARKER_FORGERY": "Your edit altered a block marker",
+    "E_AMBIGUOUS_MATCH": "Your SEARCH text matched more than one location",
+    "E_CONTRACT_VIOLATION": "Your edit changed the function's fixed signature or contract",
+    "E_CAPABILITY_DENIED": "Your edit used a capability that isn't allowed here",
+}
+
+
+def sanitize_rejection(exc: AdmissionError) -> dict:
+    """Render an AdmissionError as {"code": str, "message": str} suitable
+    for sigma.prompts.build_messages()'s prior_rejection argument."""
+    prefix = _HUMAN_PREFIX.get(exc.code, "Your proposal was rejected")
+    return {"code": exc.code, "message": f"{prefix}: {exc.detail}"}
+
 
 def admit_candidate(
     *,
