@@ -49,13 +49,30 @@ target.
 `tests/integration/test_sandbox_smoke.py` (pre-existing, Week 2) covers
 B01/B02 (read-only FS), B03 (network), B04 (pids limit), B05 (memory
 limit) directly. B06 (timeout), B07 (`ctypes`/shellcode — already blocked
-upstream at G3 regardless), B08 (env/secret enumeration), B09 (orphan
-process after container exit) have no dedicated test yet; not required by
-Stage 1's stated scope, but B08 in particular (confirming no API keys are
-reachable inside the container) would be a cheap, worthwhile addition if
-there's spare time before the write-up — `launcher.py`'s `build_docker_command`
-never passes `GROQ_API_KEY` via `-e`, so this should already hold, it just
-isn't empirically confirmed by a test the way the others are.
+upstream at G3 regardless), B09 (orphan process after container exit)
+still have no dedicated test; not required by Stage 1's stated scope.
+
+**B08 (env/secret enumeration) — closed, Week 3 Day 15.** Two tests now
+cover this, at different layers:
+- `tests/unit/test_launcher.py::test_no_env_flag_ever_names_a_secret_variable`
+  (host-only, no Docker needed): sets fake `GROQ_API_KEY` /
+  `OPENAI_API_KEY` / `UPSTASH_REDIS_REST_TOKEN` values in the *test
+  process's* environment, then inspects the exact argv
+  `build_docker_command()` produces and asserts every `-e NAME=value` pair
+  has an allow-listed `NAME` and that no secret value appears anywhere in
+  the command. Since `build_docker_command` is a pure function with no
+  `--env-file` and no wildcard environment passthrough, checking the
+  literal argv is a complete proof for this code path, not a sample of one
+  candidate's view.
+- `tests/integration/test_sandbox_smoke.py::test_no_host_secrets_reachable_inside_container`
+  (live container): the empirical companion — a candidate running inside
+  a real container enumerates its own `os.environ` and fails itself if
+  anything secret-shaped is visible, while the host process has a fake
+  secret sitting in its own `os.environ` the whole time.
+
+B08 is Tier B, so it doesn't change Stage 1's "13/17 Tier A+C" tally above
+— it's a free bonus on top of the required scope, same as the rest of
+this section.
 
 ## Running this suite
 

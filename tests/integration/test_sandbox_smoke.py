@@ -156,6 +156,39 @@ def candidate_packing(n: int) -> list[tuple[float, float, float]]:
     assert run["status"] in ("nonzero_exit", "timeout")
 
 
+def test_no_host_secrets_reachable_inside_container(tmp_path, monkeypatch):
+    """B08 (tests/adv/COVERAGE.md's disclosed gap, now closed): a candidate
+    running inside the container enumerates its own os.environ and fails
+    itself if anything secret-shaped is visible. The host process (this
+    test) has a fake secret sitting in os.environ the whole time -- if
+    launcher.py ever changed to pass the parent environment through
+    (--env-file, or forwarding os.environ into subprocess.run without
+    clearing it), this is the test that would catch it. Complements
+    test_launcher.py's host-side, no-Docker version of the same claim,
+    which checks the exact argv Docker is invoked with rather than
+    observing it empirically from inside a live container.
+    """
+    monkeypatch.setenv("GROQ_API_KEY", "sk-fake-test-value-should-never-cross-the-boundary")
+    monkeypatch.setenv("UPSTASH_REDIS_REST_TOKEN", "fake-test-value-should-never-cross-the-boundary")
+    candidate = """\
+from __future__ import annotations
+import os
+
+# EVOLVE-BLOCK-START: circle_packing
+def candidate_packing(n: int) -> list[tuple[float, float, float]]:
+    suspicious = [k for k in os.environ if "GROQ" in k.upper() or "API_KEY" in k.upper()
+                  or "TOKEN" in k.upper() or "SECRET" in k.upper()]
+    if suspicious:
+        raise RuntimeError(f"host secret reachable inside container: {suspicious}")
+    return [(0.5, 0.5, 0.1)] * n
+# EVOLVE-BLOCK-END: circle_packing
+"""
+    work = _work_dir(tmp_path, candidate, {"task": "circle_packing", "n": 1})
+    env = run_in_sandbox(work, seed=1, run_index=0)
+    run = env["runs"][0]
+    assert run["status"] == "ok"
+
+
 def test_score_smuggling_rejected_by_host(tmp_path):
     """C-tier: a candidate that runs fine inside the container but tries to
     author its own score. The container has no opinion about this -- the

@@ -24,6 +24,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import checkpoint as checkpoint_mod
 from .admission.errors import AdmissionError
 from .admission.tasks import TaskSpec
 from .control.channel import ControlChannel
@@ -48,6 +49,8 @@ class RunSummary:
     generations: list[GenerationRecord] = field(default_factory=list)
     best_fitness: float | None = None
     final_src: str = ""
+    stopped_reason: str | None = None  # e.g. "budget_exhausted"; None if
+    # this invocation's requested n_generations was simply used up.
 
 
 def _record_rejection(
@@ -102,27 +105,68 @@ def run_generations(
     max_retries_per_generation: int = 3,
     admit_fn=default_admit_candidate,
     evaluate_fn=default_evaluate,
+    start_generation_index: int = 0,
+    initial_parent_src: str | None = None,
+    initial_parent_id: str | None = None,
+    initial_best_fitness: float | None = None,
+    checkpoint_path: Path | None = None,
+    stop_exceptions: tuple[type[BaseException], ...] = (),
 ) -> RunSummary:
-    """Runs up to n_generations proposal/admit/evaluate cycles starting from
-    task's own seed file. Raises manifest_mod.IntegrityViolation if it ever
-    fires (see module docstring) -- the caller must not swallow that.
+    """Runs up to n_generations proposal/admit/evaluate cycles, resuming
+    from (start_generation_index, initial_parent_src, initial_parent_id,
+    initial_best_fitness) if given -- default (0, None, None, None) means
+    "start fresh from task's own P_0 seed", same as before this parameter
+    set existed. Raises manifest_mod.IntegrityViolation if it ever fires
+    (see module docstring) -- the caller must not swallow that.
+
+    stop_exceptions: exception types that, if raised by sigma.propose_diff,
+    end the run cleanly (checkpoint saved, summary returned with
+    stopped_reason set to the exception's class name) instead of
+    propagating. This is how a Sigma-side daily-budget cap
+    (sigma.budget.BudgetExceeded) turns into "come back tomorrow" rather
+    than a crash -- deliberately plumbed as a caller-supplied predicate,
+    not a hardcoded import of anything from the sigma package, so this
+    module keeps knowing nothing about Sigma's internals (the Sigma-Delta
+    structural separation this whole project is built around). Pass
+    `(BudgetExceeded,)` from the call site that actually imports Sigma
+    (scripts/run_stage1.py), not from here.
+
+    checkpoint_path: if given, an up-to-date delta.checkpoint.RunCheckpoint
+    is written after every generation (including the one that triggers a
+    stop_exceptions stop) so the next invocation can resume exactly here.
     """
     p0_src = manifest_mod.canonical_source(task.seed_path)
     p0_digest = manifest_mod.p0_digest(task.seed_path)
     expected_manifest = manifest_mod.build_manifest(manifest_roots)
 
-    parent_src = p0_src
-    parent_id: str | None = None
-    best_fitness: float | None = None
+    parent_src = initial_parent_src if initial_parent_src is not None else p0_src
+    parent_id: str | None = initial_parent_id
+    best_fitness: float | None = initial_best_fitness
     summary = RunSummary(task_name=task.name)
 
-    for g in range(n_generations):
+    def _save_checkpoint(next_gen: int) -> None:
+        if checkpoint_path is None:
+            return
+        checkpoint_mod.save(
+            checkpoint_path,
+            checkpoint_mod.RunCheckpoint(
+                task_name=task.name, seed_base=seed_base, next_generation_index=next_gen,
+                parent_src=parent_src, parent_id=parent_id, best_fitness=best_fitness,
+            ),
+        )
+
+    for g in range(start_generation_index, start_generation_index + n_generations):
         control.checkpoint()  # drain point: raises SystemExit if halted
 
         prior_rejection = None
         admitted = None
+        stopped_by = None
         for _attempt in range(max_retries_per_generation):
-            diff = sigma.propose_diff(task=task, parent_src=parent_src, prior_rejection=prior_rejection)
+            try:
+                diff = sigma.propose_diff(task=task, parent_src=parent_src, prior_rejection=prior_rejection)
+            except stop_exceptions as e:
+                stopped_by = e
+                break
             clone_id = f"{task.name}-g{g}-{uuid.uuid4().hex[:8]}"
             try:
                 admitted = admit_fn(
@@ -139,10 +183,19 @@ def run_generations(
                 prior_rejection = sanitize_rejection(e)
                 # IntegrityViolation is NOT caught here -- see module docstring.
 
+        if stopped_by is not None:
+            # Nothing happened for generation g -- no Sigma call succeeded,
+            # so no diff/admission/evaluation exists to log. Next resume
+            # retries g from scratch, against unchanged parent state.
+            _save_checkpoint(next_gen=g)
+            summary.stopped_reason = type(stopped_by).__name__
+            break
+
         if admitted is None:
             summary.generations.append(
                 GenerationRecord(generation_index=g, outcome="stalled", clone_id=None, fitness=None)
             )
+            _save_checkpoint(next_gen=g + 1)
             continue  # exhausted retries this generation; try again next generation
 
         result = evaluate_fn(
@@ -169,6 +222,7 @@ def run_generations(
         summary.generations.append(
             GenerationRecord(generation_index=g, outcome=outcome, clone_id=clone_id, fitness=result["fitness"])
         )
+        _save_checkpoint(next_gen=g + 1)
 
     summary.best_fitness = best_fitness
     summary.final_src = parent_src

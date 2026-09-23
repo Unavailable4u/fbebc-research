@@ -168,28 +168,117 @@ grid has no overlap to fix. One data point on `gpt-oss-120b` free-tier's
 early proposal quality, potentially worth a line in the paper's
 qualitative discussion of generation-0 behavior.
 
-## Not yet built (Week 3 onward)
+## Week 3, Day 15 (cont'd) — circle_packing sanity check, checkpoint/resume, B08 (2026-09-24)
 
-- **A real end-to-end generation run** — `scripts/run_stage1.py --task
-  binpacking --generations 5` has not actually been executed yet. Do this
-  before anything else; it's the thing that turns all of the above from
-  "unit-tested" into "actually works."
-- **The 8-10 case scoped ADV suite, Tier C, run for real** — Week 3 Day
-  19-21. Tier A is covered by admission unit tests. Tier C
-  (reward-hacking) has host-side defenses (`envelope.py`, verified against
-  a live container for the score-smuggling case specifically) but the
-  full scoped suite hasn't been run end to end yet.
-- **Switch to circle_packing for the reported results** — Week 3.
-  Binpacking is pipeline-debugging only.
+Built in a session with no Docker binary and no `GROQ_API_KEY` (confirmed,
+not assumed — same disclosed constraint as every other "written here,
+validate on your machine" entry in this file). Everything below either
+needed no network/sandbox to verify, or is new code that *will* need your
+machine to exercise for real.
+
+**Circle-packing `P_0` sanity check (research-program-guide §1.4, Day 15's
+last remaining item) — done, host-side, no Docker needed:**
+`candidate_packing(26)`'s grid seed scores `{"fitness": 2.1666..., "valid":
+True}` against `score_packing`. Matches hand-calculation (6×6 grid, 26 of
+36 cells used, `r = 1/12`, `26 * 1/12 = 2.1666...`). This closes Day 15;
+Week 3's remaining items are the real experiment (Day 16-20) and the live
+ADV suite run (Day 19-21) — see `WEEK3_SETUP.md`, both need your Docker +
+`GROQ_API_KEY` machine.
+
+**Checkpoint/resume + graceful budget-exhaustion stop — built, unit-tested,
+not yet exercised against a real Sigma budget cap.** The gap this closes:
+Day 15's real run showed ~1.6 Sigma calls per generation (8 calls / 5
+generations); a full circle_packing run at anything near the guide's
+§1.5 budget (~1,000 calls) will not fit inside one day's free-tier request
+cap, so `scripts/run_stage1.py` needed to survive being invoked once (or a
+few times) per day across several days without losing progress or
+crashing ugly on `BudgetExceeded`. Concretely:
+- `delta/checkpoint.py`: a small, explicit, non-chained JSON file (deliberately
+  *not* reconstructed by replaying the ledger — the ledger doesn't store
+  `valid` or the candidate's actual source text, only a digest, so
+  re-deriving resume state from it would mean re-implementing `loop.py`'s
+  adoption rule a second time, in a different place, with a second chance
+  to get it subtly wrong). `run_generations()` is the only writer, right
+  after each live adoption decision, so the checkpoint can never disagree
+  with the decision that produced it.
+- `delta/loop.py`: `run_generations()` gained `start_generation_index` /
+  `initial_parent_*` (resume from a checkpoint instead of `P_0`) and
+  `stop_exceptions` (a caller-supplied exception tuple that ends the run
+  cleanly instead of crashing — deliberately *not* a hardcoded import of
+  `sigma.budget.BudgetExceeded` into `delta/`, to keep the Sigma-Delta
+  structural separation intact; `scripts/run_stage1.py`, which already
+  imports both packages, is what actually passes `(BudgetExceeded,)` in).
+- `scripts/run_stage1.py`: auto-resumes from a checkpoint next to the
+  ledger file unless `--restart` is passed; new `--seeds 0,1000,2000`
+  runs several seed-arms in one sitting (each gets its own
+  `<stem>.seedN<suffix>` ledger + checkpoint), stopping the whole batch —
+  not just the current arm — the moment the shared daily budget is hit,
+  since Groq's cap is process-wide, not per-seed.
+- Tests: `tests/unit/test_checkpoint.py` (round-trip),
+  `tests/unit/test_loop_resume.py` (the one that matters most:
+  interrupt-and-resume produces byte-identical `final_src`/`best_fitness`
+  to an uninterrupted run of the same generations), and
+  `tests/unit/test_run_stage1_cli.py` (the pure per-seed ledger-path
+  helper). 13 new tests, all green. **Not yet exercised against a real
+  `BudgetExceeded` from the live Groq API** — the unit tests use a fake
+  exception type standing in for it (see `test_loop_resume.py`'s
+  docstring on why, same Sigma-Delta-separation reasoning as above); the
+  first real multi-day run is what actually proves this end to end.
+
+**ADV Tier B08 (env/secret enumeration) — closed**, per the "cheap,
+worthwhile addition" `tests/adv/COVERAGE.md` flagged after Day 15's first
+pass. Two layers: `tests/unit/test_launcher.py`'s new
+`test_no_env_flag_ever_names_a_secret_variable` (host-only — inspects the
+exact argv `build_docker_command()` produces against several fake host
+secrets, a complete check since that function has no `--env-file` and no
+wildcard env passthrough) and `tests/integration/test_sandbox_smoke.py`'s
+new `test_no_host_secrets_reachable_inside_container` (the live-container
+empirical companion, same pattern as the other Tier B smoke tests). See
+`tests/adv/COVERAGE.md` for the updated tally.
+
+129/129 unit+adv tests green (116 from Day 15's first pass + 13 new).
+Integration suite now has 10 cases (was 9), still requires your Docker
+daemon to run.
+
+**Open question for you, not resolved here:** the research-program-guide's
+§1.5 call-budget math ("population 40, generations 25 = 1,000 mutation
+calls per run") assumes a population dimension this loop doesn't have —
+Stage 1's actual `run_generations()` is single-winner hill-climbing, one
+Sigma call per generation attempt (plus retries on admission rejection).
+"25 generations" taken literally would be a far smaller experiment than
+the guide intends; matching the guide's *total-effort* budget instead
+means something closer to ~600-1,000 actual generations per seed-arm
+(using Day 15's observed ~1.6 calls/generation). This needs to be a
+deliberate decision recorded in the paper's Methods (same honesty
+discipline as the Levenshtein-for-Zhang-Shasha and Groq-for-Gemini
+substitutions already logged above), not something silently assumed —
+see `WEEK3_SETUP.md`'s first section before starting Day 16.
+
+## Not yet built / not yet run for real (Week 3 remainder onward)
+
+- **The circle_packing experiment itself** (Week 3, Day 16-20) — Day 15's
+  real end-to-end run used binpacking (pipeline-debugging only, per
+  §1.2/§1.4, not reported in the paper) and the sanity check above only
+  scored `P_0` once, host-side, no generations run. Nothing has evolved
+  circle_packing yet. Needs: the population/generations call-budget
+  decision above resolved, then your Docker + `GROQ_API_KEY` machine —
+  see `WEEK3_SETUP.md`.
+- **The newly-added B08 test, run for real against a live container** —
+  everything else in `tests/integration` (including C04/C06/C10) already
+  passed for real on 2026-09-23 per this file's own Day 15 entry above
+  (9/9 at the time). `test_no_host_secrets_reachable_inside_container`
+  is new since then and has only run host-side-adjacent (i.e. not at
+  all against a real daemon) — one more `pytest tests/integration -v`
+  on your machine closes this out; see `WEEK3_SETUP.md`.
 - **Elite-band vs single-winner ablation** — Week 4, tagged via the
   ledger's `ablation_config` column (present in the schema, unused until
   then).
 
 ## Stage 1 exit checklist (research-program-guide §1.6) — progress
 
-- [ ] `P_0` improves measurably over generations on circle packing — blocked on a real run (see above)
+- [ ] `P_0` improves measurably over generations on circle packing — blocked on the real experiment (see above)
 - [x] Manifest integrity mechanism built and unit-tested (full-run claim comes once real generations run)
-- [ ] The 8-10 case adversarial suite passes — Tier A covered by unit tests; Tier C defenses written and partially live-verified, full suite not yet run end to end
+- [x] The 8-10 case adversarial suite passes — 13/17 Tier A+C cases tested (exceeds target), Tier A via unit tests, Tier C via unit tests + all 9 integration cases (incl. C04/C06/C10) live-verified 2026-09-23; new B08 bonus test still needs its first live-container run
 - [ ] Elite-band vs single-winner ablation — not started (Week 4)
 - [x] Ledger chain built and unit-tested (hash chain, tamper detection, lineage/generation queries all verified)
 - [x] Sandbox hardening verified on a real Docker daemon

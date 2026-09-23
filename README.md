@@ -3,7 +3,8 @@
 Implements `fbebc-research-program-guide.md` §1 (Stage 1), using
 `fbebc-phase1-implementation-guide.md` as the reference for every mechanism
 that carries over unchanged. See `STATUS.md` for exactly what's done and
-what's next.
+what's next, `WEEK2_SETUP.md`/`WEEK3_SETUP.md` for the steps that need a
+real Docker daemon and Sigma API key on your own machine.
 
 ## Layout
 
@@ -20,22 +21,50 @@ delta/
   integrity/
     manifest.py       SHA-256 manifest + verify()        (Phase1 §5, unchanged)
   evaluation/
+    launcher.py                Docker sandbox launcher (basic hardening, research-program-guide §1.1)
+    envelope.py                score non-authorship + rigged-numeric checks on raw sandbox output
+    evaluate.py                per-candidate cycle: sandbox -> score -> ledger append
     scorer_binpacking.py       warm-up task scorer + fixed instance generator
     scorer_circle_packing.py   primary task scorer        (research-program-guide §1.2, verbatim)
+  ledger/
+    chain.py, schema.sql       hash-chained provenance ledger (Phase1 §11, Stage-1-scoped columns)
+  control/
+    channel.py                halt/pause/resume, host-side only (Phase1 §12, unchanged)
+  orchestrator.py              admit_candidate(): sequences gates G0-G5
+  loop.py                      run_generations(): the actual per-generation cycle, with
+                                checkpoint/resume + graceful daily-budget-exhaustion stop
+  checkpoint.py                explicit resume-state file for multi-day runs (see loop.py)
+harness/                       supervisor/child process split that runs inside the container
+sigma/
+  client.py                    Sigma LLM client (Groq, disclosed substitution for the guide's Gemini pin)
+  budget.py                    local daily request budget, checked before every network call
+  prompts.py                   system prompt + per-task objective descriptions
 seed/
   binpacking/candidate.py       P_0 for the warm-up task
   circle_packing/candidate.py   P_0 for the primary task   (research-program-guide §1.2, verbatim)
-tests/unit/                     49 tests, all against hand-written sources/diffs, no LLM calls
+scripts/
+  run_stage1.py                 CLI entrypoint: proposes, admits, evaluates, adopts, repeats
+tests/
+  unit/                         129 tests total (with tests/adv), no LLM/Docker calls
+  adv/                          scoped adversarial suite, host-only (see COVERAGE.md)
+  integration/                  needs a real Docker daemon (see WEEK2_SETUP.md/WEEK3_SETUP.md)
 ```
-
-Not yet built: `harness/` (sandbox supervisor/child split), `delta/ledger/`,
-`delta/control/`, `sigma/client.py`, `tests/adv/`. See `STATUS.md`.
 
 ## Running the tests
 
 ```bash
 pip install pytest
-python3 -m pytest -v
+python3 -m pytest -v                  # 129 passed — unit + adv, no Docker/LLM needed
+pytest tests/integration -v           # needs a real Docker daemon, see WEEK2_SETUP.md
 ```
 
-All 49 tests currently pass.
+## Running a real generation loop
+
+```bash
+export GROQ_API_KEY=...
+python scripts/run_stage1.py --task binpacking --generations 5   # pipeline smoke test
+python scripts/run_stage1.py --task circle_packing --seeds 0,1000,2000 --generations 600
+```
+
+See `WEEK3_SETUP.md` before running the second command for real — it
+covers the call-budget sizing decision and the multi-day resume workflow.
