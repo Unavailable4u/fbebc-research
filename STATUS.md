@@ -38,7 +38,7 @@ This is the first result in the project citable in the paper's Methods
 section without a caveat about the test environment.
 
 ## Week 2, Day 12-14 — Σ client + generation loop, built and unit-tested
-
+"native Docker Engine on WSL2 Ubuntu, kernel 6.18.33.2-microsoft-standard-WSL2"
 **Disclosed substitution:** the research-program-guide pins Gemini 2.5
 Flash-Lite for Σ; this build uses **Groq's `openai/gpt-oss-120b`
 (free tier)** instead — same spirit as the guide's own "verify current

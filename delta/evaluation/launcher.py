@@ -32,7 +32,7 @@ HARNESS_DIR = Path(__file__).resolve().parents[2] / "harness"
 # here. Pinning by digest, not tag, matters for reproducibility (Phase1
 # guide §17, pitfall #5). Record whatever you end up with in your run
 # manifest/README too.
-PINNED_IMAGE = "python@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea"
+PINNED_IMAGE = "python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9"
 
 DOCKER_TIMEOUT_OUTER_S = 45
 FBEBC_TIMEOUT_INNER_S = 30
