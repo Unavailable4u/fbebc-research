@@ -44,7 +44,7 @@ seed/
   binpacking/candidate.py       P_0 for the warm-up task
   circle_packing/candidate.py   P_0 for the primary task   (research-program-guide §1.2, verbatim)
 scripts/
-  run_stage1.py                 CLI entrypoint: matched-arm, round-robin, multi-day resumable runs
+  run_stage1.py                 CLI entrypoint: matched-arm, least-progressed-first, multi-day resumable runs
   usage_report.py               measure real Sigma tokens/call; project experiment size from the daily caps
   summarize_ledgers.py          read-only per-arm progress, rejection taxonomy, matched-generation comparison
 tests/

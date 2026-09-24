@@ -23,7 +23,8 @@ The Day-15 review found three problems that would have wasted the real run:
    have eaten every day's quota while seeds 1000/2000 starved, and re-running
    the same command would have given seed 0 another 600. Now:
    `--target-generations N` is a *total per arm*, and arms advance
-   round-robin so any early stop leaves them matched.
+   least-progressed-first (Day 16 fix: a plain round-robin let early arms drift
+   ahead across resumed days) so any early stop leaves them matched.
 3. **The elite-band arm did not exist**, and its stated motivation ("noise
    robustness") does not apply to a deterministic fitness. It now exists
    (`delta/selection.py`, k=1 ≡ single-winner) and is framed as an
@@ -137,8 +138,11 @@ just re-run tomorrow.
 This creates six ledgers — `runs/week3.{single_winner,elite_band}.seed{0,1000,2000}.db`
 — each with a `.checkpoint.json`, plus `runs/week3.runmeta.json`.
 
-**Daily routine:** re-run the *identical* command each day. It resumes every
-arm from its checkpoint, continues round-robin, and stops (exit code 3) the
+**Daily routine:** re-run the *identical* command each day, after the local
+counter's UTC-midnight reset (00:00 UTC = 06:00 in Bangladesh). If Groq's own
+window has not caught up you may hit a real TPD 429 first — a clean exit-3
+stop; wait a few hours and re-run. It resumes every
+arm from its checkpoint, always advances the least-progressed arm, and stops (exit code 3) the
 moment the provider's budget is hit. Then:
 
 ```bash
@@ -168,7 +172,7 @@ the experiment as well, on the exact code that produced the results.
 `tests/unit/test_loop_band.py::test_band_resume_reproduces_uninterrupted_run_exactly`
 and `test_multiday_matched_run_end_to_end_with_fakes` prove, with fakes, that
 interrupt/resume reproduces an uninterrupted run (including which parent the
-band sampled each generation) and that the multi-day round-robin driver keeps
+band sampled each generation) and that the multi-day least-progressed-first driver keeps
 arms matched. They do **not** exercise a real Groq 429 or a real
 `BudgetExceeded` — the first genuine multi-day run does. If day 2 does not
 pick up exactly where day 1 stopped (wrong generation, wrong band, missing

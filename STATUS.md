@@ -396,6 +396,39 @@ Ran on your machine: `--conditions single_winner,elite_band --seeds 9999
   once-only baseline check across resumes) and relabels "unattested" as "no
   attested result (crash/timeout, not an integrity event)".
 
+## Launch day (2026-09-24 UTC): the real matched run started; day 1 results; one scheduler bug fixed
+
+Launched at tag `prereg-week3` (`--target-generations 100`, 6 arms, token cap
+190000, prompt v2). It stopped cleanly at the local token cap
+(190,932 tokens used, incl. 70,142 from the earlier pilot).
+- **Progress:** 63 generations across the 6 arms — single_winner/seed0 = 13,
+  every other arm = 10 — from 66 Σ calls and 120,790 tokens: **1,830
+  tokens/call** (pilot: 1,754; parents grow as Σ writes longer code, so watch
+  this number drift up) and **1.05 calls/generation**. Three retried calls
+  (elite_band/seed1000: 12 requests for 10 generations; elite_band/seed2000:
+  11) mean admission rejections or `E_NO_PROPOSAL` *do* occur on real Σ output
+  — classes to be read from `summarize_ledgers.py`, not from memory.
+- **First strict improvement:** `elite_band/seed1000` reached **2.2292036**
+  (+0.0625, +2.9% over the 2.1667 baseline) within its first 10 generations.
+  The other five arms are still at the baseline. **One arm, ten generations,
+  and a peek at one arm's result: nothing to conclude, and nothing changes.**
+  The run continues to N = 100 unchanged (`PREREGISTRATION.md`: no optional
+  stopping, no extension). Worth a read of the winning diff (text only —
+  never execute candidate code outside the sandbox) as a qualitative example
+  for the paper.
+- **Bug found from the counts, fixed:** the arm scheduler was a per-pass
+  round-robin that restarts from the first arm on every resume, so early arms
+  gain a chunk whenever a daily stop lands mid-pass and the lead accumulates
+  (regression test reproduced `[10,10,30,30,30,33]` by day 2). Replaced with
+  least-progressed-first (`next_chunk`); 202/202 tests pass, including a
+  60-day interrupted-run simulation. Logged as **deviation D1** in
+  `PREREGISTRATION.md` — scheduling order only; no arm's trajectory logic
+  changed. My earlier claim that arms "stay matched across days" was wrong for
+  the previous scheduler; the multi-day fake test only checked the first stop.
+- Budget outlook at 1,830 tokens/call and 190K/day: ~104 calls ≈ 99
+  generations/day at 1.05 calls/gen → the remaining ~537 generations need
+  ~5.5 more days (deadline: end of 2026-10-02).
+
 ## Not yet built / not yet run for real (Week 3 remainder onward)
 
 - **The circle_packing experiment itself** (Week 3, Day 16-20) — Day 15's

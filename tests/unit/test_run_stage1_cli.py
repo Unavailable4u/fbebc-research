@@ -69,13 +69,6 @@ def test_build_arms_single_condition_keeps_the_legacy_ledger_names():
     assert [a.ledger_path for a in arms] == ["runs/w3.seed0.db", "runs/w3.seed1000.db"]
 
 
-def test_plan_round_only_includes_unfinished_arms_and_clamps_the_last_chunk():
-    mod = _load_run_stage1()
-    a, b, c = (mod.Arm("single_winner", s, 1, f"x{s}.db") for s in (0, 1, 2))
-    plan = mod.plan_round([a, b, c], {a: 0, b: 95, c: 100}, target=100, round_size=10)
-    assert plan == [(a, 10), (b, 5)]
-
-
 def _fake_runner(done, *, stop_after=None):
     """run_arm_fn stand-in that advances `done` and can simulate the shared
     daily budget dying after `stop_after` chunks."""
@@ -233,3 +226,41 @@ def test_changing_band_size_on_an_existing_arm_is_refused(tmp_path, monkeypatch)
     assert mod.run_one_arm(arm3, 2, task_name="circle_packing", sigma=_FakeSigma(50), verbose=False) == 0
     arm5 = mod.Arm("elite_band", 0, 5, str(tmp_path / "x.db"))
     assert mod.run_one_arm(arm5, 2, task_name="circle_packing", sigma=_FakeSigma(50), verbose=False) == 2
+
+
+# --- Week 3 Day 16 (post-launch): multi-day arm drift regression ---------------
+
+def _spread(done):
+    return max(done.values()) - min(done.values())
+
+
+def test_arms_stay_within_one_chunk_across_many_interrupted_days():
+    """Regression for a bug found from the first real launch's arm counts
+    ([13, 10, 10, 10, 10, 10] after day 1): a scheduler that gives every arm a
+    chunk per round STARTING FROM THE SAME ARM each invocation lets the early
+    arms gain an extra chunk every time a daily cut lands mid-round, so the
+    lead ACCUMULATES across days. The property that matters for a matched
+    ablation: after ANY day's stop, no arm leads another by more than one
+    chunk (plus a pre-existing odd offset)."""
+    mod = _load_run_stage1()
+    arms = mod.build_arms(["single_winner", "elite_band"], [0, 1000, 2000], 3, "r.db")
+    done = {a: 10 for a in arms}
+    done[arms[0]] = 13                       # the actual post-launch state
+    round_size, target, budget_chunks_per_day = 10, 100, 4   # 4 does not divide 6 arms -> cut lands mid-round daily
+    for day in range(1, 60):
+        run_arm, _ = _fake_runner(done, stop_after=budget_chunks_per_day)
+        code = mod.run_batch(arms, target=target, round_size=round_size, legacy_generations=5,
+                             done_fn=lambda a: done[a], run_arm_fn=run_arm)
+        if code == 0:
+            break
+        assert _spread(done) <= round_size + 3, f"day {day}: arms drifted apart: {sorted(done.values())}"
+    assert code == 0 and all(v == target for v in done.values())
+
+
+def test_next_chunk_always_advances_the_least_progressed_arm():
+    mod = _load_run_stage1()
+    a, b, c = (mod.Arm("single_winner", s, 1, f"x{s}.db") for s in (0, 1, 2))
+    assert mod.next_chunk([a, b, c], {a: 13, b: 10, c: 10}, target=100, round_size=10) == (b, 10)   # tie -> listed order
+    assert mod.next_chunk([a, b, c], {a: 13, b: 20, c: 10}, target=100, round_size=10) == (c, 10)
+    assert mod.next_chunk([a, b, c], {a: 100, b: 96, c: 100}, target=100, round_size=10) == (b, 4)   # clamped at target
+    assert mod.next_chunk([a, b, c], {a: 100, b: 100, c: 100}, target=100, round_size=10) is None

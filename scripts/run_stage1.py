@@ -13,11 +13,12 @@ The real Week 3 experiment (matched arms, multi-day, resumable):
 --target-generations N is a TOTAL per arm (an arm is one condition x one
 seed). Re-running the identical command on later days continues each arm
 until it reaches N and then does nothing more -- unlike --generations, which
-always means "N more". Arms advance ROUND-ROBIN in chunks of --round-size
-generations, so if the daily Sigma quota runs out mid-day every arm is at
-(nearly) the same generation count. A cut-short experiment is therefore still
-a MATCHED experiment, which is what the elite-band-vs-single-winner ablation
-needs ("cut scope, not the cap": research-program-guide §1.4).
+always means "N more". Arms advance in chunks of --round-size generations,
+always the arm with the FEWEST completed generations first (ties: listed
+order), so however many days the quota interrupts the run, no arm ever leads
+another by more than about one chunk. A cut-short experiment is therefore
+still a MATCHED experiment, which is what the elite-band-vs-single-winner
+ablation needs ("cut scope, not the cap": research-program-guide §1.4).
 
 Needs:
   - GROQ_API_KEY in the environment (never on the command line).
@@ -104,33 +105,48 @@ def build_arms(conditions: list[str], seed_bases: list[int], band_size: int, bas
     return arms
 
 
-def plan_round(arms, done: dict, target: int, round_size: int) -> list:
-    """One round-robin pass: [(arm, n_generations_this_chunk)] for every arm
-    still below target. Empty list == everything finished."""
-    return [(a, min(round_size, target - done[a])) for a in arms if done[a] < target]
+def next_chunk(arms, done: dict, target: int, round_size: int):
+    """The next (arm, n_generations) to run, or None when every arm is at
+    target. Always the arm with the FEWEST completed generations (ties: listed
+    order), so arms stay within one chunk of each other no matter where any
+    day's quota stop lands.
+
+    Why not a plain round-robin pass: a pass that always starts from the first
+    arm lets early arms gain an extra chunk every time a stop lands mid-pass,
+    and that lead ACCUMULATES across resumed days (found after the first real
+    launch: arms at [13,10,10,10,10,10] would have drifted to
+    [10,10,30,30,30,33] by day 2)."""
+    pending = [a for a in arms if done[a] < target]
+    if not pending:
+        return None
+    arm = min(pending, key=lambda a: done[a])  # min() keeps the first of equals -> listed order
+    return arm, min(round_size, target - done[arm])
 
 
 def run_batch(arms, *, target, round_size, legacy_generations, done_fn, run_arm_fn) -> int:
-    """Drive arms round-robin. target=None is the legacy single pass of
-    `legacy_generations` per arm. Stops the WHOLE batch on a budget stop
-    (code 3): Sigma's cap is process-wide, and continuing to feed later arms
+    """Drive the arms. target=None is the legacy single pass of
+    `legacy_generations` per arm. Otherwise repeatedly run one chunk of the
+    least-progressed arm (see next_chunk) until every arm reaches `target`.
+    Stops the WHOLE batch on any non-zero code, including a budget stop
+    (code 3): Sigma's cap is process-wide, and continuing to feed other arms
     would unbalance them."""
-    while True:
-        if target is None:
-            plan = [(a, legacy_generations) for a in arms]
-        else:
-            plan = plan_round(arms, {a: done_fn(a) for a in arms}, target, round_size)
-        if not plan:
-            return 0
-        before = sum(done_fn(a) for a in arms)
-        for arm, n in plan:
-            code = run_arm_fn(arm, n)
+    if target is None:
+        for arm in arms:
+            code = run_arm_fn(arm, legacy_generations)
             if code != 0:
                 return code
-        if target is None:
+        return 0
+    while True:
+        chunk = next_chunk(arms, {a: done_fn(a) for a in arms}, target, round_size)
+        if chunk is None:
             return 0
-        if sum(done_fn(a) for a in arms) <= before:
-            print("!!! a full round made no progress -- refusing to loop forever.", file=sys.stderr)
+        arm, n = chunk
+        before = done_fn(arm)
+        code = run_arm_fn(arm, n)
+        if code != 0:
+            return code
+        if done_fn(arm) <= before:
+            print(f"!!! a chunk for {arm.label} made no progress -- refusing to loop forever.", file=sys.stderr)
             return 4
 
 
@@ -310,7 +326,7 @@ def main() -> int:
     _write_run_meta(args.ledger, args, arms, sigma.model)
 
     print(f"task={args.task} model={sigma.model} arms={[a.label for a in arms]}")
-    print(f"mode={'target ' + str(args.target_generations) + ' total/arm, round-robin x' + str(args.round_size) if args.target_generations else 'legacy ' + str(args.generations or 5) + ' more/arm'}")
+    print(f"mode={'target ' + str(args.target_generations) + ' total/arm, least-progressed-first, chunks of ' + str(args.round_size) if args.target_generations else 'legacy ' + str(args.generations or 5) + ' more/arm'}")
     print(f"Sigma today: {sigma.budget.daily_cap - sigma.budget.remaining()}/{sigma.budget.daily_cap} req, "
           f"{sigma.budget.tokens_used()} tok"
           + (f" (local token cap {args.daily_token_cap})" if args.daily_token_cap else " (NO local token cap)"))
@@ -325,7 +341,7 @@ def main() -> int:
         print(f"\nAll {len(arms)} arm(s) reached {args.target_generations} generations. "
               f"Summarize with: python scripts/summarize_ledgers.py {Path(args.ledger).parent}/*.db")
     elif code == 3:
-        print("Stopping the whole batch (budget is process-wide). Arms are matched to within one chunk.",
+        print("Stopping the whole batch (budget is process-wide). Arms are within one chunk of each other.",
               file=sys.stderr)
     return code
 

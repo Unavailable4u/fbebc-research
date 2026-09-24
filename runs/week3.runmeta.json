@@ -1,0 +1,39 @@
+{
+  "task": "circle_packing",
+  "model": "openai/gpt-oss-120b",
+  "image_digest": "python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+  "invocations": [
+    {
+      "ts_utc": "2026-09-24T03:17:34Z",
+      "git_commit": "9c149ea00f228c3bd1b1735e87f7ef83e73da11d",
+      "git_dirty": false,
+      "prompt_version": "v2",
+      "prompt_sha256": "e7b250c92849daa3027c326b7396a339788d4a6887fb36ee30473d5b14e25ba5",
+      "python": "3.14.4",
+      "image_digest": "python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+      "args": {
+        "task": "circle_packing",
+        "generations": null,
+        "target_generations": 100,
+        "round_size": 10,
+        "conditions": "single_winner,elite_band",
+        "band_size": 3,
+        "seed_base": 0,
+        "seeds": "0,1000,2000",
+        "ledger": "runs/week3.db",
+        "restart": false,
+        "daily_request_cap": 900,
+        "daily_token_cap": 190000,
+        "verbose": false
+      },
+      "arms": [
+        "single_winner/seed0",
+        "elite_band/seed0",
+        "single_winner/seed1000",
+        "elite_band/seed1000",
+        "single_winner/seed2000",
+        "elite_band/seed2000"
+      ]
+    }
+  ]
+}

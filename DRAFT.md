@@ -347,7 +347,7 @@ result for I5, not a completed one.
   tokens/call, the provider limits used, and the resulting target
   generations per arm, from `scripts/usage_report.py` and
   `PREREGISTRATION.md` §2]. Design: 2 conditions × 3 seeds = 6 arms
-  advanced round-robin, so a quota stop leaves them matched. [TODO: report
+  advanced in 10-generation chunks, always the least-progressed arm first, so a quota stop leaves them within one chunk of each other. [TODO: report
   the *actual* generations completed per arm, the analysis generation
   count G_common, and total Σ calls/tokens (from the usage log) — not the
   targets.]
