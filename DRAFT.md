@@ -481,6 +481,36 @@ operational meaning (cheaper-at-equal-quality is a real margin
 improvement), and moves from a toy benchmark to real deployment evals as
 the fitness oracle.
 
+**Multi-test evaluation, specialist archives, and recombination.** Stage 1
+selects on one scalar from one benchmark instance. Two limitations follow: a
+single score cannot distinguish an all-rounder from a specialist that excels at
+part of a task, and a single fixed instance can be satisfied by a candidate
+that hard-codes its answer. A natural extension evaluates each candidate on a
+family of tests that share its interface (for circle packing, several circle
+counts or container shapes; in Stage 2, the target system's eval suite),
+records the per-test score vector in the ledger, and keeps in the elite band
+both the best all-rounder and per-test champions, in the spirit of
+quality-diversity and lexicase-style selection (MAP-Elites, Mouret & Clune,
+2015; NSGA-II, Deb et al., 2002; lexicase selection, Spector, 2012; Helmuth et
+al., 2015) [TODO: verify each citation]. A recombination step would then
+propose a hybrid — transplanting a champion's edit onto the all-rounder, or
+asking Σ to merge the two, as in LLM-driven evolutionary systems (FunSearch,
+Romera-Paredes et al., 2024; AlphaEvolve, Novikov et al., 2025; EvoPrompt, Guo
+et al., 2024) [TODO: verify] — and the hybrid would enter selection only as an
+ordinary candidate: same gates, same sandbox, same attestation, evaluated on
+the full suite rather than assumed to inherit its parents' strengths. Whether
+hybrids beat their best parent is an empirical question: improvements that act
+on separate parts of a program tend to compose, while interacting ones often
+interfere. Design questions to fix before any such experiment include the
+aggregation rule (normalized sum, Pareto, or lexicase), how to attribute a
+specialist's advantage to a specific edit (we suggest transplant ablations
+rather than inference from scores), and how the edit-size bound of §3.3 should
+treat merges, which are large steps by construction. In Stage 2, where evals
+are LLM-judged and therefore noisy, the noise-robustness motivation for an
+elite band — which Stage 1's deterministic benchmark cannot test — also
+becomes testable. We make no claim about any of this here; design notes are in
+`STAGE2_DESIGN_NOTES.md`.
+
 ## 9. Reproducibility statement
 
 Full code will be released at [repo URL] under [TODO: pick a license].
@@ -501,5 +531,5 @@ disclosed here rather than assumed away.
 - [ ] Run the matched single-winner / elite-band experiment (`WEEK3_SETUP.md` §5) — unblocks Contribution 4 and part of §6. (The §3.4 rule is now written and pre-registered; the *results* are what remain.)
 - [ ] Measure tokens/call and fill `PREREGISTRATION.md` §2 (target generations, token cap) *before* launch; then fill §5's budget TODOs from the real numbers.
 - [x] `pytest tests/integration -v` 10/10 live on Day 16 (B08 confirmed). [ ] Re-run once more on the final code before submission.
-- [ ] Final citation-check pass on every reference in §2 immediately before submission (see the citation-checking note there).
+- [ ] Final citation-check pass on every reference in §2 **and §8** immediately before submission (see the citation-checking note there). §8's references (MAP-Elites, NSGA-II, lexicase selection, FunSearch, AlphaEvolve, EvoPrompt) were written from memory and are unverified.
 - [ ] Pick and record: license for the public repo, exact model access date range, arXiv category/endorsement plan (paper guide §4.2–4.3).

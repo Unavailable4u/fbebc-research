@@ -461,6 +461,21 @@ Launched at tag `prereg-week3` (`--target-generations 100`, 6 arms, token cap
 
 **Has it already changed anything? — No.** `scripts/replay_selection.py` on all six arms (63 generations): every replay reproduced its arm's checkpoint band exactly (so the replay is faithful), and the corrected rule made **identical decisions on every arm's history** (candidates that reached selection: band 7 / 9 / 6, single-winner 10 / 10 / 10). The fix is a pure bug fix that touched none of the data collected so far, so no restart; logged as **deviation D2** in `PREREGISTRATION.md` and continuing. Output saved as `runs/week3.replay_d2.txt`. Lesson kept: my tests for the rule used fakes whose fingerprints I controlled, so they could not catch a key that was wrong on real programs; the new tests exercise the real `edit_metrics` and real sources.
 
+## Idea recorded, deliberately not built: multi-test evaluation + specialist recombination
+
+Raised by you (Day 17): evaluate clones on several tests, keep the best
+all-rounder *and* per-test champions, merge champions' strengths into the
+all-rounder to make hybrids. Written up in **`STAGE2_DESIGN_NOTES.md`**
+(idea, guardrails, what Stage 1 already taught us, open design questions with
+options, four smallest experiments E0–E3, kill criteria) and as a Future Work
+paragraph in `DRAFT.md` §8. It fits the guide's Stage 2 (multi-case real evals;
+cost/latency — your "efficiency" — re-enters as a measured axis; noisy evals make
+the elite band's original noise-robustness motivation testable), but it is **not**
+that gated plan and is **not part of Stage 1**: the running experiment is unchanged.
+The cheapest first look, if you want one later, is **E0** — re-score the clones
+we already collected at other circle counts (zero Σ tokens). §8's citations were
+written from memory and are on the pending list to verify.
+
 ## Not yet built / not yet run for real (Week 3 remainder onward)
 
 - **The circle_packing experiment itself** (Week 3, Day 16-20) — Day 15's

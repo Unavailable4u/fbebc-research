@@ -75,3 +75,6 @@ python scripts/run_stage1.py --task circle_packing --conditions single_winner,el
 continue); `--generations` means "N more" and is for smoke tests only. See
 `WEEK3_SETUP.md` for the measure -> pre-register (`PREREGISTRATION.md`) -> launch
 workflow, and why the run is sized by tokens/day rather than requests/day.
+
+Forward-looking design ideas that are deliberately **not** part of Stage 1 live in
+`STAGE2_DESIGN_NOTES.md` (multi-test evaluation, specialist archives, recombination).
