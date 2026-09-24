@@ -37,7 +37,7 @@ from pathlib import Path
 
 from . import checkpoint as checkpoint_mod
 from .admission.errors import AdmissionError
-from .admission.metrics import edit_metrics, semantic_fingerprint
+from .admission.metrics import edit_metrics, exact_fingerprint
 from .admission.tasks import TaskSpec
 from .control.channel import ControlChannel
 from .evaluation.evaluate import evaluate as default_evaluate
@@ -105,6 +105,27 @@ def _record_rejection(
         "ablation_config": ablation_config,
         "stderr_tail": None,
     })
+
+
+def _exact_fp_or_none(src: str) -> str | None:
+    try:
+        return exact_fingerprint(src)
+    except SyntaxError:
+        return None
+
+
+def _normalize_band_fingerprints(band: EliteBand) -> EliteBand:
+    """Members restored from a checkpoint written BEFORE exact_fingerprint
+    existed carry the old node-type-only hash (no "x1:" prefix). Re-derive
+    their key from the stored source so they compare correctly against new
+    children; already-versioned keys are left alone."""
+    fixed = []
+    for e in band.elites:
+        fp = e.fingerprint
+        if not (isinstance(fp, str) and fp.startswith("x1:")):
+            fp = _exact_fp_or_none(e.src)
+        fixed.append(Elite(src=e.src, clone_id=e.clone_id, fitness=e.fitness, fingerprint=fp))
+    return EliteBand(band.k, fixed)
 
 
 def run_generations(
@@ -178,11 +199,11 @@ def run_generations(
     fallback_src = initial_parent_src if initial_parent_src is not None else p0_src
     fallback_id: str | None = initial_parent_id
     if initial_band is not None:
-        band = EliteBand.from_dicts(band_size, initial_band)
+        band = _normalize_band_fingerprints(EliteBand.from_dicts(band_size, initial_band))
     elif initial_parent_src is not None and initial_best_fitness is not None:
         band = EliteBand(band_size, [Elite(
             src=initial_parent_src, clone_id=initial_parent_id, fitness=initial_best_fitness,
-            fingerprint=semantic_fingerprint(initial_parent_src),
+            fingerprint=_exact_fp_or_none(initial_parent_src),
         )])
     else:
         band = EliteBand(band_size)
@@ -224,7 +245,7 @@ def run_generations(
             )
         band.consider(Elite(
             src=p0_src, clone_id=base_id, fitness=base["fitness"],
-            fingerprint=p0_metrics["semantic_fingerprint"],
+            fingerprint=p0_metrics["exact_fingerprint"],
         ))
         summary.baseline_fitness = base["fitness"]
         _save_checkpoint(next_gen=start_generation_index)
@@ -307,7 +328,7 @@ def run_generations(
             result["attested"] and result["valid"]
             and band.consider(Elite(
                 src=admitted["child_src"], clone_id=clone_id, fitness=result["fitness"],
-                fingerprint=admitted["metrics"].get("semantic_fingerprint"),
+                fingerprint=admitted["metrics"].get("exact_fingerprint"),
             ))
         )
         outcome = "improved" if entered else "kept"

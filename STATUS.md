@@ -429,6 +429,38 @@ Launched at tag `prereg-week3` (`--target-generations 100`, 6 arms, token cap
   generations/day at 1.05 calls/gen → the remaining ~537 generations need
   ~5.5 more days (deadline: end of 2026-10-02).
 
+## Run log (append one row per day the run advances; numbers copied from `summarize_ledgers.py`)
+
+| Date (UTC) | single_winner s0 / s1000 / s2000 (gens; best) | elite_band s0 / s1000 / s2000 (gens; best) | Σ calls / tokens today | Notes |
+|---|---|---|---|---|
+| 2026-09-24 | 13; 2.1667 / 10; 2.1667 / 10; 2.1667 | 10; 2.1667 / 10; **2.2292** / 10; 2.1667 | 66 launch calls, 120,790 tok (1,830/call) | launch at commit `9c149ea0`, clean; stopped at local token cap; D1 (scheduler) fixed afterwards |
+
+**Day-1 detail worth keeping for the paper**
+- Rejections on real Σ output: 3 of 66 calls, **all `E_MALFORMED_DIFF`** (band/seed1000: 2, band/seed2000: 1), none in the three single-winner arms. n = 3; do not read a pattern into "only the band arms" (band parents are more varied and longer, so a verbatim SEARCH block is harder to copy — a hypothesis, not a finding).
+- 1 crashed candidate (band/seed2000, `nonzero_exit`, no scored result — ordinary execution failure, not a barrier event). Scored-invalid packings so far: 0–3 per arm of 10–13.
+- **The 2.2292 candidate** (`elite_band/seed1000`, generation 9, child of g8): a hexagonal-offset row layout, then each circle's radius set to `min(distance to nearest square border, half the distance to its nearest neighbour)`. That radius rule can never produce an overlap (any pair has `r_i + r_j ≤ d_ij` by construction; checked numerically over 2,000 random point sets, min slack 0.0) — so it is valid *by design*, not by scorer-tolerance luck, and it did not touch the scorer or anything outside the block. It also carries a stale leftover comment from an earlier edit. One example only; when writing §6 show it alongside a *typical* candidate, not on its own.
+- Per-call token cost keeps creeping up as parents get longer code (1,830 vs the pilot's 1,754; this run's largest single call 3,069 tokens). Budget check at a pessimistic 2,800 tokens/call: 8 daily quotas (Sep 25 – Oct 2) still cover ~517 of the ~537 remaining generations; the stopping rule (Day 23, analysis at G_common) covers any shortfall. There is ~2.5 days of slack at the current rate — **no timing pressure to start early.**
+- All Σ calls run under **one Groq account/key** and its free-tier quota (to be stated in the paper's Methods). The daily wait is deliberate; swapping in other accounts' keys to multiply the quota is not part of this experiment (it works around the provider's usage limits, risks the provider's action against the main key mid-project, and buys nothing given the slack above).
+
+## Day 17: step-size data from the real run, and a bug in MY duplicate rule (patch 6)
+
+**Step-size data** (`ast_distance_parent`, frozen metric, admitted candidates; n = 10–13 per arm — preliminary):
+
+| arm | median step | max step | best-fitness candidate: step / distance from `P_0` |
+|---|---|---|---|
+| band s0 / s1000 / s2000 | 0.183 / 0.221 / 0.388 | 0.541 / 0.582 / 0.580 | s1000: **0.391 / 0.713** (the 2.2292 hex layout) |
+| single s0 / s1000 / s2000 | 0.066 / 0.512 / 0.088 | 0.641 / 0.753 / 0.556 | (best rows are ties with `P_0`) |
+
+- The scale is the whole-file, node-type-sequence Levenshtein normalised by the longer sequence (immutable header ≈ 5 of 122 nodes, negligible dilution). I reproduced the ledger's 0.713 exactly from the printed winner, so the numbers are what they appear to be.
+- **Reading, for the concept (bounded small increments):** the guide's planned 15% per-step bound would counterfactually have blocked the winning step (0.391) and most structural proposals; only near-constant tweaks (medians 0.066, 0.088) fit under it. From the seed grid, the hex layout is not reachable in sub-15% steps. That is the familiar trust-region limitation (a bound cannot cross a valley), observed on real data — but n is small, it is counterfactual on realized proposals (blocking a step would change every later parent), and it is one task. Report as an observation, not a result.
+- **The frozen metric is blind to constants and identifier names** (verified by running it: `1.0 → 0.99`, `1.0 → 100.0` and `side → kk` all have distance 0.0). A step bound on this metric therefore cannot bound the *magnitude* of a numeric change. Syntactic step size ≠ behavioural step size; the paper should report edit size together with the fitness change and say so in Limitations. (The metric was frozen before data, so this is a disclosed weakness, not something to change.)
+
+**The bug (mine, introduced with the elite-band rule):** the duplicate check used `semantic_fingerprint`, which hashes only node *types*. Two programs differing only in constants/names got the same key, so a **constant-tuned child was rejected as a "duplicate" even when strictly fitter** — in both arms (k=1 included). Numeric tuning of a working layout is the most basic kind of improvement, and it would have become more likely as Σ's programs got richer. I described the key as "canonical-AST hash" and never tested what it could not see; the tests used fakes whose fingerprints I controlled.
+
+**Fix (patch 6):** new `exact_fingerprint` (hash of the full canonical AST: layout/comments/docstrings ignored, constants and names count; keys versioned `x1:`); selection uses it; checkpoints written with the old key are re-derived from stored source on resume. The ledger's `semantic_fingerprint` column and the frozen distance are untouched. 214/214 tests pass, including regressions for constant-tuned improvements under k=1 and k=3.
+
+**Has it already changed anything? — No.** `scripts/replay_selection.py` on all six arms (63 generations): every replay reproduced its arm's checkpoint band exactly (so the replay is faithful), and the corrected rule made **identical decisions on every arm's history** (candidates that reached selection: band 7 / 9 / 6, single-winner 10 / 10 / 10). The fix is a pure bug fix that touched none of the data collected so far, so no restart; logged as **deviation D2** in `PREREGISTRATION.md` and continuing. Output saved as `runs/week3.replay_d2.txt`. Lesson kept: my tests for the rule used fakes whose fingerprints I controlled, so they could not catch a key that was wrong on real programs; the new tests exercise the real `edit_metrics` and real sources.
+
 ## Not yet built / not yet run for real (Week 3 remainder onward)
 
 - **The circle_packing experiment itself** (Week 3, Day 16-20) — Day 15's

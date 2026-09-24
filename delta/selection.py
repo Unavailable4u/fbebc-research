@@ -19,10 +19,15 @@
 # PREREGISTRATION.md). A child enters the band iff ALL of:
 #   1. it is attested AND valid (checked by the caller -- unattested
 #      candidates never reach this class, Phase1 §14 hard rule 1);
-#   2. its semantic_fingerprint (canonical-AST hash, admission/metrics.py)
-#      differs from every current member's -- a rewrite that is
-#      semantically identical to an existing elite adds no diversity; a
-#      missing fingerprint (None) is never treated as a duplicate;
+#   2. its exact_fingerprint (hash of the full canonical AST, admission/
+#      metrics.py: layout/comments/docstrings ignored, constants and names
+#      COUNT) differs from every current member's -- a rewrite that is the
+#      same program up to layout adds no diversity; a missing fingerprint
+#      (None) is never treated as a duplicate.
+#      (Correction, Week 3 Day 17: this rule was first implemented with
+#      semantic_fingerprint, a node-TYPE-only hash blind to constants and
+#      names, which wrongly rejected constant-tuned children as duplicates --
+#      even when strictly fitter. See PREREGISTRATION.md deviation D2.)
 #   3. the band has fewer than k members, OR its fitness >= the band's
 #      worst member's fitness (ties ADOPTED, matching the single-winner
 #      tie rule; drift between equal-fitness programs is free).

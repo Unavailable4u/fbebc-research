@@ -158,6 +158,20 @@ following the output format), `scored-invalid packings` dominating, or
 `--restart` archives an arm's ledger and checkpoint (renamed `*.bak-<stamp>`,
 never deleted). Use it only deliberately.
 
+**Day 17 addendum — run this BEFORE the next daily command** (after applying patch 6):
+
+```bash
+python scripts/replay_selection.py runs/week3.*.db
+```
+
+It is read-only. **Result (Day 17): no arm diverged, so the fix (deviation D2) is a clean bug fix and the
+run continues.** Keep the script: re-run it at the end of the experiment as a final consistency check.
+
+**Optional — don't want to babysit the daily re-run?** `scripts/run_week3_until_done.sh`
+(run it in `tmux`) re-runs the frozen command whenever it stops on a budget limit
+(exit code 3), waiting an hour between tries, and stops for anything else. It adds
+no capacity: same single account, same token cap, same day-by-day pace as doing it by hand.
+
 Do **not** edit anything under `delta/`, `harness/`, `sigma/` after launch
 without logging it in `PREREGISTRATION.md`'s deviation log — the manifest
 digest in the ledger would change across the edit.

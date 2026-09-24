@@ -93,7 +93,29 @@ def normalized_tree_edit_distance(a_src: str, b_src: str) -> float:
 
 
 def semantic_fingerprint(src: str) -> str:
+    """Hash of the canonical node-TYPE sequence only. Deliberately blind to
+    numeric/string constant VALUES and to identifier names (that is what makes
+    it a stable *structure* fingerprint and matches node_sequence's design).
+    Recorded in the ledger as part of the frozen interface. DO NOT use it as an
+    identity key for selection -- see exact_fingerprint()."""
     return hashlib.sha256("|".join(node_sequence(canonical_ast(src))).encode()).hexdigest()
+
+
+def exact_fingerprint(src: str) -> str:
+    """Identity key for the elite-band duplicate rule (added Week 3 Day 17).
+
+    Hash of the full canonical AST dump: comments, whitespace, formatting and
+    docstrings are ignored (canonical_ast blanks docstrings, ast.dump omits
+    positions), but constants, names and operators all count. Two programs get
+    the same key iff they are the same program up to layout.
+
+    Why this exists: selection originally used semantic_fingerprint() as the
+    duplicate key. Because that hash cannot see constants, `r = 1.0/(2*side)`
+    and `r = 100.0/(2*side)` were "duplicates", so a child that differed from
+    the incumbent/band only by a tuned constant was rejected as a duplicate
+    EVEN WHEN STRICTLY FITTER. The "x1:" prefix versions the key so checkpoints
+    written with the old key can be recognized and re-derived on resume."""
+    return "x1:" + hashlib.sha256(ast.dump(canonical_ast(src)).encode("utf-8")).hexdigest()[:32]
 
 
 def _token_sequence(src: str) -> list[str]:
@@ -154,4 +176,5 @@ def edit_metrics(parent_src: str, child_src: str, p0_src: str) -> dict:
         "nodes_removed": nodes_removed,
         "max_depth_delta": max_depth_delta,
         "semantic_fingerprint": semantic_fingerprint(child_src),
+        "exact_fingerprint": exact_fingerprint(child_src),
     }

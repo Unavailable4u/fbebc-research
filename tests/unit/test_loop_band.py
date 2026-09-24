@@ -50,7 +50,7 @@ def fake_admit(*, parent_src, diff_text, task, p0_src, expected_manifest, manife
     # duplicates simply by reusing a diff string.
     return {
         "admitted": True, "child_src": parent_src + f"\n# {diff_text}",
-        "metrics": {"semantic_fingerprint": diff_text}, "soft_hits": [],
+        "metrics": {"semantic_fingerprint": diff_text, "exact_fingerprint": "x1:" + diff_text}, "soft_hits": [],
     }
 
 

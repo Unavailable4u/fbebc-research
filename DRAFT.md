@@ -244,7 +244,8 @@ admission decision from it yet.
 **3.4 Selection: single-winner (k=1) vs. elite band (k=3).** Both arms
 are one implementation (`delta/selection.py`) differing in one integer, k,
 so any outcome difference cannot be blamed on two divergent code paths.
-The state is the top-k *distinct* (canonical-AST-fingerprint) attested,
+The state is the top-k *distinct* (full canonical-AST hash: layout, comments and
+docstrings ignored; constants and names count) attested,
 valid candidates seen so far, with the sandbox-scored seed `P_0` as the
 first member. Each generation, Σ proposes one diff against a parent
 sampled uniformly from the band (seeded by `(seed_base, generation)`, so
@@ -260,6 +261,15 @@ since there are no matches). Unattested candidates never enter either arm
 — the Phase 1 design's fairness-bounded, scheduled band width and G_t
 controller are not part of Stage 1 — and k=3, uniform sampling, and the
 duplicate rule were chosen a priori and not tuned.
+
+*Implementation note (disclose in Methods).* The duplicate key was first implemented as a
+hash of the AST node-*type* sequence, which cannot distinguish programs differing only in
+constants or names, so constant-tuned children could be wrongly rejected as duplicates.
+This was fixed one day into the run (pre-registration deviation D2); replaying all arms'
+recorded history through both rules showed identical decisions up to the fix, so no
+reported trajectory was affected [TODO: state the number of generations covered by the
+replay from `runs/week3.replay_d2.txt`, and re-run the replay at the end as a final check
+that the corrected rule was the only one applied after the fix].
 
 *What the ablation can show.* circle-packing fitness is a deterministic
 function of the candidate's output, so there is no evaluation noise for
@@ -364,6 +374,7 @@ result for I5, not a completed one.
   A 20-generation-per-arm v2 pilot on a separate seed produced no improvement
   over `P_0` but did produce valid non-grid layouts (all scoring below the
   grid); the reported runs use v2 unchanged.
+- All Σ calls ran under a single account's free-tier quota (one API key), spread over the days needed to stay under its daily token limit; the run's calendar span is a consequence of that limit, not of any design choice.
 - Σ is **not seeded**: temperature 0.7, provider-side non-determinism is
   uncontrolled. `seed_base` fixes only the parent-sampling RNG and the
   evaluation seed, so paired arms share a seed label, not a trajectory.
@@ -382,10 +393,11 @@ Do not draft this section with placeholder numbers. Once the run in
 1. Fitness-over-generations curve, all 3 seeds, small multiples or
    overlaid with the individual seed values visible (not just a mean —
    see the paper guide's §5 on statistical honesty).
-2. Rejection taxonomy breakdown. **Expect this to be nearly empty:** in
-   54 pilot generations on real Σ output, no admission gate ever fired
+2. Rejection taxonomy breakdown. **Expect this to be nearly empty** (day 1
+   of the real run: 3 of 66 Σ calls rejected, all `E_MALFORMED_DIFF`; in
+   54 pilot generations before it, no admission gate ever fired
    (Σ, cooperatively prompted, follows the diff format and stays inside the
-   block). Report that plainly — it is a fact about a cooperative proposer,
+   block)). Report that plainly — it is a fact about a cooperative proposer,
    not evidence the gates work; the barrier evidence is the ADV suite (§4).
    Report `E_NO_PROPOSAL` and crashed/timed-out candidates separately.
    (Counts per `AdmissionError` code —
@@ -427,8 +439,16 @@ Do not draft this section with placeholder numbers. Once the run in
   reported prompt therefore embeds task guidance (validity rule, seed is a
   strong local optimum) that an unguided proposer would lack, and H1 (`P_0`
   improves) was not guaranteed and may not hold.
-- Band diversity is syntactic (canonical-AST fingerprint), so semantically
-  equivalent rewrites can occupy several band slots.
+- Band diversity is syntactic: the duplicate key is the hash of the full
+  canonical AST (layout ignored; constants and names count), so behaviourally
+  equivalent rewrites with different code can occupy several band slots.
+- The frozen edit-size metric (Levenshtein over the AST node-type sequence) is
+  blind to constant values and identifier names, so a step bound on it cannot
+  bound the magnitude of a numeric change; syntactic step size is not
+  behavioural step size. On the run's first ~10–13 candidates per arm the median
+  step was 0.07–0.51 and the best improvement was a 0.39 step (0.71 from `P_0`);
+  a 15% bound would counterfactually have blocked it [TODO: replace with the
+  full-run counterfactual sweep once the run ends; observational, not a rerun].
 - Σ is unseeded and provider-side behavior can drift; trajectories are not
   reproducible from seeds, only auditable from the ledger.
 - Σ replies with no usable diff (`E_NO_PROPOSAL`) consume quota and retries
