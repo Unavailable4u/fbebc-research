@@ -84,6 +84,29 @@ baseline not being 2.1667).
 The output of step 3 decides the experiment size (target generations per arm)
 — see `PREREGISTRATION.md` §2.
 
+### 3b. Prompt v2 pilot (after applying the Day-16 patch 2)
+
+Patch 2 revises Σ's prompt once (`PREREGISTRATION.md` §7). The pilot runs both
+conditions round-robin **and** exercises the target/resume driver live. Use a
+throwaway seed (9999) so nothing here is confused with the reported arms:
+
+```bash
+python scripts/run_stage1.py --task circle_packing \
+    --conditions single_winner,elite_band --band-size 3 \
+    --seeds 9999 --target-generations 12 --round-size 6 \
+    --ledger runs/pilot_v2.db --daily-token-cap 190000 --verbose
+# then the IDENTICAL command with a bigger target -- must continue from 12, not restart:
+python scripts/run_stage1.py --task circle_packing \
+    --conditions single_winner,elite_band --band-size 3 \
+    --seeds 9999 --target-generations 20 --round-size 6 \
+    --ledger runs/pilot_v2.db --daily-token-cap 190000
+python scripts/summarize_ledgers.py runs/pilot_v2.*.db
+python scripts/usage_report.py --tpd 200000 --rpd 1000 --days 8 --arms 6 --calls-per-gen 1.3
+```
+
+Expected: the second command starts each arm at generation 12; each arm has
+exactly one baseline row; ~40 Σ calls (~65K tokens) in total.
+
 ## 4. Pre-register and freeze
 
 1. Fill the `[FILL: …]` fields in `PREREGISTRATION.md` (target N, token cap,
@@ -98,14 +121,18 @@ git tag prereg-week3
 
 ## 5. Launch the matched experiment
 
-Template (substitute N and the token cap from step 4):
+Frozen values (`PREREGISTRATION.md` §2): N = 100, token cap 190000.
 
 ```bash
 python scripts/run_stage1.py --task circle_packing \
     --conditions single_winner,elite_band --band-size 3 \
-    --seeds 0,1000,2000 --target-generations <N> --round-size 10 \
-    --ledger runs/week3.db --daily-token-cap <CAP>
+    --seeds 0,1000,2000 --target-generations 100 --round-size 10 \
+    --ledger runs/week3.db --daily-token-cap 190000
 ```
+
+If today's pilot tokens already count against Groq's window, the first day
+may stop early on a real TPD 429 — that is a clean exit (code 3), not a failure;
+just re-run tomorrow.
 
 This creates six ledgers — `runs/week3.{single_winner,elite_band}.seed{0,1000,2000}.db`
 — each with a `.checkpoint.json`, plus `runs/week3.runmeta.json`.

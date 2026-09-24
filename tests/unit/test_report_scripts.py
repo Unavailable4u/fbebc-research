@@ -81,6 +81,7 @@ def test_analyze_reports_baseline_best_curve_and_seed(tmp_path):
     assert a["label"] == "single_winner_k1" and a["seed_base"] == 1000
     assert [sl.best_at(a, n) for n in (0, 1, 2, 4)] == [2.0, 2.0, 2.5, 3.0]
     assert a["calls_per_gen"] == 1.0
+    assert a["n_baseline_rows"] == 1
 
 
 def test_analyze_counts_rejections_and_invalid_packings(tmp_path):

@@ -52,7 +52,7 @@ limit) directly. B06 (timeout), B07 (`ctypes`/shellcode — already blocked
 upstream at G3 regardless), B09 (orphan process after container exit)
 still have no dedicated test; not required by Stage 1's stated scope.
 
-**B08 (env/secret enumeration) — closed, Week 3 Day 15.** Two tests now
+**B08 (env/secret enumeration) — closed, Week 3 Day 15; live-container run passed on Day 16 (`tests/integration`, 10/10).** Two tests now
 cover this, at different layers:
 - `tests/unit/test_launcher.py::test_no_env_flag_ever_names_a_secret_variable`
   (host-only, no Docker needed): sets fake `GROQ_API_KEY` /

@@ -151,6 +151,13 @@ def test_archive_existing_renames_instead_of_deleting(tmp_path):
     assert any(n.startswith("a.db.bak-") for n in names) and any(n.startswith("a.db.checkpoint.json.bak-") for n in names)
 
 
+def test_dirty_flag_only_watches_run_affecting_code():
+    mod = _load_run_stage1()
+    assert "delta" in mod.RUN_CODE_PATHS and "sigma" in mod.RUN_CODE_PATHS
+    assert "STATUS.md" not in mod.RUN_CODE_PATHS and "DRAFT.md" not in mod.RUN_CODE_PATHS
+    assert "scripts/summarize_ledgers.py" not in mod.RUN_CODE_PATHS
+
+
 def test_run_meta_appends_one_record_per_invocation(tmp_path):
     mod = _load_run_stage1()
     arms = mod.build_arms(["single_winner"], [0], 1, str(tmp_path / "w3.db"))
@@ -159,7 +166,8 @@ def test_run_meta_appends_one_record_per_invocation(tmp_path):
     mod._write_run_meta(str(tmp_path / "w3.db"), args, arms, "some-model")
     meta = json.loads((tmp_path / "w3.runmeta.json").read_text())
     assert len(meta["invocations"]) == 2 and meta["model"] == "some-model"
-    assert {"git_commit", "git_dirty", "image_digest", "ts_utc"} <= set(meta["invocations"][0])
+    assert {"git_commit", "git_dirty", "image_digest", "ts_utc", "prompt_version", "prompt_sha256"} <= set(meta["invocations"][0])
+    assert meta["invocations"][0]["prompt_version"] == "v2" and len(meta["invocations"][0]["prompt_sha256"]) == 64
 
 
 # --- end to end with fakes: real run_one_arm + real loop + real ledger --------

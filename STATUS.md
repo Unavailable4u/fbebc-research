@@ -332,6 +332,70 @@ budget like any call; `max_tokens`/`reasoning_effort` are not yet CLI flags
 (revisit only if the measurement shows truncation or waste); ledgers are
 gitignored and must be archived separately for the public release.
 
+## Day 16 live pilot (2026-09-24): first real circle_packing generations
+
+**What ran (your machine, real Docker + Groq):** patch 1 applied at base
+`36ae5c9` (uncommitted, hence `dirty invocations=1`); 8 generations
+single-winner and 6 generations elite-band (k=3) on throwaway ledgers.
+- Pipeline works end to end on the live stack: `P_0` baseline scored in the
+  sandbox = 2.1667 (matches the hand calculation); all 14 candidates ran with
+  status `ok`, none unattested; ledger chains verified; **1.00 Σ
+  calls/generation** and 0 gate rejections in both runs; usage logging and the
+  new arm-tagged ledgers (`single_winner_k1`, `elite_band_k3`) work.
+- **Measured tokens: 1,518/call mean, 1,807 p95, 924 prompt + 594 completion
+  (428 reasoning), n = 8.** Groq's published limits table (console.groq.com/
+  docs/rate-limits, checked 2026-09-24) lists `openai/gpt-oss-120b` at 30 RPM /
+  1K RPD / 8K TPM / **200K TPD**, matching the figures recorded above — so
+  the token cap does bind (~110–130 calls/day), not the request cap. Your
+  account's own limits page remains authoritative.
+- **Result to worry about:** 0 strict improvements over `P_0` in 14
+  generations. Inspected diffs: `r = 0.99/(2·side)` (worse), `r = 0.5/side`
+  (identical value), and a per-circle `r = min(x, 1-x, y, 1-y)` that overlaps
+  (invalid → fitness 0). The grid is a hard local optimum for small edits, and
+  prompt v1 asked for "ONE small, targeted edit." 14 generations is far too
+  few to conclude Σ *cannot* improve; it is enough to see the prompt was
+  working against the task.
+- **Response:** one disclosed prompt revision (v2) with a no-further-changes
+  rule — `PREREGISTRATION.md` §7 — plus a v2 pilot that also live-tests the
+  round-robin / target / resume driver (previously simulated with fakes only).
+- Minor artifact, not changed: a candidate scored 2.166666666666666 vs the
+  baseline's 2.1666666666666665 (1 ulp) and was "kept" rather than adopted;
+  ties are decided by float rounding. H1 therefore uses a 1e-9 tolerance.
+- Band diversity is *syntactic* (canonical-AST fingerprint): `P_0` plus
+  semantically-equivalent rewrites (`0.5/side` ≡ `1/(2·side)`) can fill the
+  band with behavioral duplicates. Left as is — the rule is pre-registered —
+  and to be disclosed as a limitation.
+- **Confirmed at Day 16:** `pytest tests/integration -v` → 10/10 passed against real Docker (22 s), including B08 (`test_no_host_secrets_reachable_inside_container`) — see the v2 pilot section below.
+
+## Day 16 v2 pilot (patch 2 applied, uncommitted): plumbing verified, H1 still open
+
+Ran on your machine: `--conditions single_winner,elite_band --seeds 9999
+--target-generations 12` then the identical command with `20`, ledger
+`runs/pilot_v2.db`, `--daily-token-cap 190000`; plus `pytest tests/integration -v`.
+- **Live-verified:** target-total + round-robin + resume (second command
+  continued at generation 12 in both arms; every arm reached exactly 20);
+  local token cap plumbing; prompt version/hash in `runmeta.json` (v2, 1 hash);
+  ledger chains OK; **integration suite 10/10 (B08 closed)**.
+- **Cost measured:** v2 = 1,754 tokens/call (40 calls; prompt ≈ 1,148); 1.00
+  Σ calls/generation across all 54 pilot generations; **0 admission
+  rejections ever fired on real Σ output** (so the paper's real-run rejection
+  taxonomy will be essentially empty; the barrier evidence is the ADV suite).
+- **Quality:** 0 strict improvements in either arm (20 gens each). Σ now
+  proposes valid non-grid layouts (1.9330127 = 1.5 + √3/4; 1.7414 = 1.6 +
+  √2/10) but all score below the seed grid; 3–4 of 20 invalid packings per
+  arm; 1 crashed candidate (nonzero exit → no attested result; ordinary
+  failure, not an integrity event). A band-arm 1-ulp "improvement"
+  (2.166666666666667) is not an improvement under H1's 1e-9 tolerance.
+- **Decision:** per `PREREGISTRATION.md` §7, launch unchanged (no further
+  prompt changes) at N = 100/arm, 6 arms, token cap 190000, deadline Day 23.
+- `git_dirty` in `runmeta.json` now watches only run-affecting code
+  (`delta harness sigma seed scripts/run_stage1.py`) — daily doc edits no
+  longer make later invocations look dirty. (Pilot invocations were dirty
+  because patch 2 was uncommitted; expected.)
+- `summarize_ledgers.py` now prints `baseline rows` (must be 1 — the
+  once-only baseline check across resumes) and relabels "unattested" as "no
+  attested result (crash/timeout, not an integrity event)".
+
 ## Not yet built / not yet run for real (Week 3 remainder onward)
 
 - **The circle_packing experiment itself** (Week 3, Day 16-20) — Day 15's
@@ -358,7 +422,7 @@ gitignored and must be archived separately for the public release.
 
 - [ ] `P_0` improves measurably over generations on circle packing — blocked on the real experiment (see above)
 - [x] Manifest integrity mechanism built and unit-tested (full-run claim comes once real generations run)
-- [x] The 8-10 case adversarial suite passes — 13/17 Tier A+C cases tested (exceeds target), Tier A via unit tests, Tier C via unit tests + all 9 integration cases (incl. C04/C06/C10) live-verified 2026-09-23; new B08 bonus test still needs its first live-container run
+- [x] The 8-10 case adversarial suite passes — 13/17 Tier A+C cases tested (exceeds target), Tier A via unit tests, Tier C via unit tests + all 10 integration tests (incl. C04/C06/C10 and the B08 bonus) live-verified against real Docker (9/9 on 2026-09-23; 10/10 on Day 16)
 - [ ] Elite-band vs single-winner ablation — machinery built + pre-registered (`PREREGISTRATION.md`); not yet run
 - [x] Ledger chain built and unit-tested (hash chain, tamper detection, lineage/generation queries all verified)
 - [x] Sandbox hardening verified on a real Docker daemon

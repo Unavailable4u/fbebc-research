@@ -303,10 +303,10 @@ C cases requiring kernel-level isolation to test meaningfully — state
 survival across container invocations, empty-output-after-early-exit,
 oversized-payload handling) passed against a real Docker daemon (native
 Docker Engine inside WSL2 Ubuntu, confirmed not to be Docker Desktop's
-WSL2 integration) on 2026-09-23. [TODO — one more `pytest tests/integration
--v` run needed to confirm the newly-added B08 case (host-secret
-enumeration) also passes for real; everything else in this paragraph is
-already a real, dated result, not a projection.]
+WSL2 integration) on 2026-09-23, and re-run in full (10/10, including the
+newly-added B08 host-secret-enumeration case) on Week 3 Day 16
+[TODO: replace with the exact date from `runs/pilot_v2.runmeta.json`
+timestamps, and re-run once more on the final code before submission].
 
 Of the five invariants (I1 Fixity, I2 Non-naturalistic dualism, I3 Score
 non-authorship, I4 Provenance, I5 Interruptibility), four are directly
@@ -351,6 +351,19 @@ result for I5, not a completed one.
   the *actual* generations completed per arm, the analysis generation
   count G_common, and total Σ calls/tokens (from the usage log) — not the
   targets.]
+- Σ prompt: version **v2**, fixed for all arms and recorded (with a SHA-256
+  of the full text) per invocation in the run metadata. v2 was written once,
+  after a 14-generation pilot under v1 showed no improvement over `P_0`
+  (v1 restricted edits to "small, targeted" changes and mischaracterized the
+  seed grid as weak; in fact it is a hard local optimum for one-line edits).
+  v2 removes the edit-size restriction and states the all-or-nothing validity
+  rule and that the grid is a strong local optimum for radius-only tweaks.
+  Consequently Σ receives more task guidance than an unguided setup, the
+  prompt was chosen after seeing v1 behavior, and a rule against further
+  prompt changes was fixed before the reported runs (`PREREGISTRATION.md` §7).
+  A 20-generation-per-arm v2 pilot on a separate seed produced no improvement
+  over `P_0` but did produce valid non-grid layouts (all scoring below the
+  grid); the reported runs use v2 unchanged.
 - Σ is **not seeded**: temperature 0.7, provider-side non-determinism is
   uncontrolled. `seed_base` fixes only the parent-sampling RNG and the
   evaluation seed, so paired arms share a seed label, not a trajectory.
@@ -369,7 +382,13 @@ Do not draft this section with placeholder numbers. Once the run in
 1. Fitness-over-generations curve, all 3 seeds, small multiples or
    overlaid with the individual seed values visible (not just a mean —
    see the paper guide's §5 on statistical honesty).
-2. Rejection taxonomy breakdown (counts per `AdmissionError` code —
+2. Rejection taxonomy breakdown. **Expect this to be nearly empty:** in
+   54 pilot generations on real Σ output, no admission gate ever fired
+   (Σ, cooperatively prompted, follows the diff format and stays inside the
+   block). Report that plainly — it is a fact about a cooperative proposer,
+   not evidence the gates work; the barrier evidence is the ADV suite (§4).
+   Report `E_NO_PROPOSAL` and crashed/timed-out candidates separately.
+   (Counts per `AdmissionError` code —
    already logged in the ledger for every rejected candidate, so this is
    a query against real data, not a new measurement).
 3. Elite-band vs. single-winner ablation (Week 4) — report individual
@@ -377,8 +396,7 @@ Do not draft this section with placeholder numbers. Once the run in
    per the paper guide's explicit statistical-honesty guidance.
 4. Barrier-integrity table: the 13 (+1 bonus) ADV cases, pass/fail, one
    row each — this table can actually be drafted now from §4 above and
-   `tests/adv/COVERAGE.md`; only the newly-added B08 row needs its final
-   live-run checkmark.
+   `tests/adv/COVERAGE.md`; the B08 row is now live-verified too (Day 16).
 
 ## 7. Limitations
 
@@ -405,6 +423,12 @@ Do not draft this section with placeholder numbers. Once the run in
   fairness-bounded, scheduled band — and only one k was run. The fitness is
   deterministic, so the ablation speaks to exploration, not to robustness
   under evaluation noise (the setting the elite-band idea is motivated by).
+- The Σ prompt was revised once after an informal 14-generation pilot; the
+  reported prompt therefore embeds task guidance (validity rule, seed is a
+  strong local optimum) that an unguided proposer would lack, and H1 (`P_0`
+  improves) was not guaranteed and may not hold.
+- Band diversity is syntactic (canonical-AST fingerprint), so semantically
+  equivalent rewrites can occupy several band slots.
 - Σ is unseeded and provider-side behavior can drift; trajectories are not
   reproducible from seeds, only auditable from the ledger.
 - Σ replies with no usable diff (`E_NO_PROPOSAL`) consume quota and retries
@@ -456,6 +480,6 @@ disclosed here rather than assumed away.
 - [ ] Run the real circle_packing experiment (`WEEK3_SETUP.md`) — unblocks §5, §6, part of §7, the Abstract's finding sentence, and the Title choice.
 - [ ] Run the matched single-winner / elite-band experiment (`WEEK3_SETUP.md` §5) — unblocks Contribution 4 and part of §6. (The §3.4 rule is now written and pre-registered; the *results* are what remain.)
 - [ ] Measure tokens/call and fill `PREREGISTRATION.md` §2 (target generations, token cap) *before* launch; then fill §5's budget TODOs from the real numbers.
-- [ ] Re-run `pytest tests/integration -v` to confirm the B08 case for real — closes the one open row in §4/§6.4.
+- [x] `pytest tests/integration -v` 10/10 live on Day 16 (B08 confirmed). [ ] Re-run once more on the final code before submission.
 - [ ] Final citation-check pass on every reference in §2 immediately before submission (see the citation-checking note there).
 - [ ] Pick and record: license for the public repo, exact model access date range, arXiv category/endorsement plan (paper guide §4.2–4.3).

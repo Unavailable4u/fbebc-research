@@ -52,8 +52,15 @@ from delta.ledger.chain import Ledger  # noqa: E402
 from delta.loop import run_generations  # noqa: E402
 from sigma.budget import BudgetExceeded  # noqa: E402
 from sigma.client import DEFAULT_DAILY_REQUEST_CAP, SigmaClient, SigmaError, SigmaProposalError  # noqa: E402
+from sigma.prompts import PROMPT_VERSION, prompt_fingerprint  # noqa: E402
 
 CONDITIONS = ("single_winner", "elite_band")
+
+# `git_dirty` in runmeta.json answers "was the code that produces results
+# identical to the recorded commit?" -- so it only looks at run-affecting
+# paths. Editing STATUS.md / DRAFT.md / analysis scripts between days (which
+# the workflow does daily) must not make every later invocation look dirty.
+RUN_CODE_PATHS = ["delta", "harness", "sigma", "seed", "scripts/run_stage1.py"]
 
 
 @dataclass(frozen=True)
@@ -153,7 +160,8 @@ def _write_run_meta(base_ledger: str, args, arms, model: str) -> None:
     """Append one record per invocation to <ledger stem>.runmeta.json. The
     per-invocation git commit is how the paper can state that the Delta code
     was identical across every day of the run (or say plainly that it was
-    not). Only TRACKED-file modifications count as 'dirty'."""
+    not). 'Dirty' = a tracked run-affecting file (RUN_CODE_PATHS) differs
+    from the recorded commit; docs and analysis scripts do not count."""
     path = Path(base_ledger).with_suffix(".runmeta.json")
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -163,7 +171,9 @@ def _write_run_meta(base_ledger: str, args, arms, model: str) -> None:
     meta["invocations"].append({
         "ts_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "git_commit": _git("rev-parse", "HEAD"),
-        "git_dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
+        "git_dirty": bool(_git("status", "--porcelain", "--untracked-files=no", "--", *RUN_CODE_PATHS)),
+        "prompt_version": PROMPT_VERSION,
+        "prompt_sha256": prompt_fingerprint(),
         "python": platform.python_version(),
         "image_digest": PINNED_IMAGE,
         "args": {k: v for k, v in vars(args).items()},

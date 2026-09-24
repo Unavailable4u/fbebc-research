@@ -60,6 +60,7 @@ def analyze(rows: list[dict]) -> dict:
     """Pure function of the ledger rows -- unit tested."""
     task = rows[0]["task"] if rows else None
     base = next((r for r in rows if r["generation_index"] == -1 and r["attested"] and r["fitness"] is not None), None)
+    n_baseline_rows = sum(1 for r in rows if r["generation_index"] == -1)
     gen_rows = [r for r in rows if r["generation_index"] >= 0]
     gens = sorted({r["generation_index"] for r in gen_rows})
     evaluated = [r for r in gen_rows if r["admitted"] == 1]
@@ -90,7 +91,7 @@ def analyze(rows: list[dict]) -> dict:
         seed_base = base["seed"]
     label = next((r["ablation_config"] for r in rows if r["ablation_config"]), None)
     return {
-        "task": task, "label": label, "seed_base": seed_base,
+        "task": task, "label": label, "seed_base": seed_base, "n_baseline_rows": n_baseline_rows,
         "baseline": base["fitness"] if base else None,
         "n_generations": len(gens), "n_calls": len(gen_rows),
         "calls_per_gen": (len(gen_rows) / len(gens)) if gens else None,
@@ -130,7 +131,8 @@ def print_arm(path: str, a: dict) -> None:
         print(f"   P_0 baseline: {_fmt(a['baseline'])} | best: {_fmt(a['best'])}")
     if a["n_generations"]:
         print("   best after N gens: " + "  ".join(f"{n}:{_fmt(best_at(a, n))}" for n in checkpoints(a["n_generations"])))
-    print(f"   evaluated: {a['n_evaluated']} | unattested: {a['n_unattested']} | sandbox status: {a['status'] or '{}'}"
+    print(f"   baseline rows: {a['n_baseline_rows']} (must be 1) | evaluated: {a['n_evaluated']} | "
+          f"no attested result (crash/timeout, not an integrity event): {a['n_unattested']} | sandbox status: {a['status'] or '{}'}"
           + (f" | scored-invalid packings: {a['invalid_packings']}" if a["task"] == "circle_packing" else ""))
     rej = ", ".join(f"{k} {v}" for k, v in sorted(a["rejections"].items(), key=lambda kv: -kv[1])) or "none"
     print(f"   rejections: {rej}")
@@ -163,7 +165,10 @@ def print_runmeta(paths: list[str]) -> None:
         print(f"\n== run metadata ({meta.name}): model={m.get('model')} invocations={len(commits)} "
               f"distinct git commits={len(set(commits))} ({', '.join(sorted({(c or '?')[:8] for c in commits}))}) "
               f"dirty invocations={dirty}")
-        print(f"   image: {m.get('image_digest')}")
+        prompts = {i.get("prompt_sha256") for i in m["invocations"]}
+        versions = sorted({str(i.get("prompt_version")) for i in m["invocations"]})
+        print(f"   image: {m.get('image_digest')} | prompt version(s): {', '.join(versions)} | "
+              f"distinct prompt hashes: {len(prompts)}" + ("  !! PROMPT CHANGED MID-RUN" if len(prompts) > 1 else ""))
 
 
 def main() -> int:

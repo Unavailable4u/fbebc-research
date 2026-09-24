@@ -8,9 +8,26 @@
 # only against your own sandboxed system. This is the default, cooperative
 # prompt used for actual evolution runs.
 
+# PROMPT_VERSION is recorded (with a hash of the full prompt text) in every
+# run's runmeta.json, so the paper can state exactly which prompt produced a
+# result and a mid-run prompt change cannot go unnoticed.
+#   v1 (Week 2-3 pilot): "ONE small, targeted edit"; circle_packing objective
+#       called the seed grid "a deliberately weak starting point".
+#   v2 (Day 16, after the v1 pilot -- see PREREGISTRATION.md §7): edit size is
+#       unrestricted within the block; the objective states the all-or-nothing
+#       validity rule and that the seed is a strong local optimum for
+#       radius-only tweaks. v1 produced 0 strict improvements in 14 generations
+#       (3 of 8 single-winner candidates were invalid packings); the v1
+#       wording was inaccurate (the grid IS hard to beat with small edits) and
+#       nudged Sigma away from the restructuring the task needs. ONE revision
+#       only: no further prompt changes after the v2 pilot.
+PROMPT_VERSION = "v2"
+
 SYSTEM_PROMPT = """\
-You are proposing ONE small, targeted edit to a Python function, as part of \
-an automated code-improvement loop.
+You are proposing ONE edit to a Python function, as part of an automated \
+code-improvement loop. The edit may be as small as changing a constant or as \
+large as rewriting the whole body of the function inside the markers -- \
+choose whatever you judge most likely to improve the objective.
 
 Rules, all of which are mechanically enforced -- a proposal that breaks any \
 of them is rejected before it ever runs:
@@ -59,9 +76,15 @@ TASK_OBJECTIVES = {
     "circle_packing": (
         "Maximize the sum of the n circles' radii. All n circles must lie "
         "entirely inside the unit square [0,1]x[0,1] and must not overlap "
-        "each other (pairwise). Larger, more cleverly arranged circles "
-        "score higher; the naive grid layout you're shown is a deliberately "
-        "weak starting point."
+        "each other (pairwise). Radii may differ from circle to circle. "
+        "Validity is all-or-nothing: if ANY circle overlaps another or "
+        "crosses the square's boundary, the whole packing scores 0. The "
+        "layout you're shown puts equal circles on a grid; it is valid but "
+        "a strong local optimum -- changing only the shared radius makes it "
+        "worse or invalid -- so improving on it generally means changing the "
+        "arrangement of the centers and/or giving circles different radii, "
+        "while keeping every circle valid. Only the standard-library `math` "
+        "module is available."
     ),
 }
 
@@ -86,3 +109,12 @@ def build_messages(*, task, parent_src: str, prior_rejection: dict | None) -> li
         {"role": "system", "content": SYSTEM_PROMPT.format(block_name=task.block_name)},
         {"role": "user", "content": user},
     ]
+
+
+def prompt_fingerprint() -> str:
+    """SHA-256 over the complete prompt text (system template + every task
+    objective). Recorded per invocation in runmeta.json."""
+    import hashlib
+    import json
+    blob = json.dumps({"system": SYSTEM_PROMPT, "objectives": TASK_OBJECTIVES}, sort_keys=True)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()

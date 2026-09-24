@@ -1,0 +1,310 @@
+diff --git a/DRAFT.md b/DRAFT.md
+index 69323c1..b29249b 100644
+--- a/DRAFT.md
++++ b/DRAFT.md
+@@ -303,10 +303,10 @@ C cases requiring kernel-level isolation to test meaningfully — state
+ survival across container invocations, empty-output-after-early-exit,
+ oversized-payload handling) passed against a real Docker daemon (native
+ Docker Engine inside WSL2 Ubuntu, confirmed not to be Docker Desktop's
+-WSL2 integration) on 2026-09-23. [TODO — one more `pytest tests/integration
+--v` run needed to confirm the newly-added B08 case (host-secret
+-enumeration) also passes for real; everything else in this paragraph is
+-already a real, dated result, not a projection.]
++WSL2 integration) on 2026-09-23, and re-run in full (10/10, including the
++newly-added B08 host-secret-enumeration case) on Week 3 Day 16
++[TODO: replace with the exact date from `runs/pilot_v2.runmeta.json`
++timestamps, and re-run once more on the final code before submission].
+ 
+ Of the five invariants (I1 Fixity, I2 Non-naturalistic dualism, I3 Score
+ non-authorship, I4 Provenance, I5 Interruptibility), four are directly
+@@ -361,7 +361,9 @@ result for I5, not a completed one.
+   Consequently Σ receives more task guidance than an unguided setup, the
+   prompt was chosen after seeing v1 behavior, and a rule against further
+   prompt changes was fixed before the reported runs (`PREREGISTRATION.md` §7).
+-  [TODO: report the v2 pilot outcome in one sentence.]
++  A 20-generation-per-arm v2 pilot on a separate seed produced no improvement
++  over `P_0` but did produce valid non-grid layouts (all scoring below the
++  grid); the reported runs use v2 unchanged.
+ - Σ is **not seeded**: temperature 0.7, provider-side non-determinism is
+   uncontrolled. `seed_base` fixes only the parent-sampling RNG and the
+   evaluation seed, so paired arms share a seed label, not a trajectory.
+@@ -380,7 +382,13 @@ Do not draft this section with placeholder numbers. Once the run in
+ 1. Fitness-over-generations curve, all 3 seeds, small multiples or
+    overlaid with the individual seed values visible (not just a mean —
+    see the paper guide's §5 on statistical honesty).
+-2. Rejection taxonomy breakdown (counts per `AdmissionError` code —
++2. Rejection taxonomy breakdown. **Expect this to be nearly empty:** in
++   54 pilot generations on real Σ output, no admission gate ever fired
++   (Σ, cooperatively prompted, follows the diff format and stays inside the
++   block). Report that plainly — it is a fact about a cooperative proposer,
++   not evidence the gates work; the barrier evidence is the ADV suite (§4).
++   Report `E_NO_PROPOSAL` and crashed/timed-out candidates separately.
++   (Counts per `AdmissionError` code —
+    already logged in the ledger for every rejected candidate, so this is
+    a query against real data, not a new measurement).
+ 3. Elite-band vs. single-winner ablation (Week 4) — report individual
+@@ -388,8 +396,7 @@ Do not draft this section with placeholder numbers. Once the run in
+    per the paper guide's explicit statistical-honesty guidance.
+ 4. Barrier-integrity table: the 13 (+1 bonus) ADV cases, pass/fail, one
+    row each — this table can actually be drafted now from §4 above and
+-   `tests/adv/COVERAGE.md`; only the newly-added B08 row needs its final
+-   live-run checkmark.
++   `tests/adv/COVERAGE.md`; the B08 row is now live-verified too (Day 16).
+ 
+ ## 7. Limitations
+ 
+@@ -473,6 +480,6 @@ disclosed here rather than assumed away.
+ - [ ] Run the real circle_packing experiment (`WEEK3_SETUP.md`) — unblocks §5, §6, part of §7, the Abstract's finding sentence, and the Title choice.
+ - [ ] Run the matched single-winner / elite-band experiment (`WEEK3_SETUP.md` §5) — unblocks Contribution 4 and part of §6. (The §3.4 rule is now written and pre-registered; the *results* are what remain.)
+ - [ ] Measure tokens/call and fill `PREREGISTRATION.md` §2 (target generations, token cap) *before* launch; then fill §5's budget TODOs from the real numbers.
+-- [ ] Re-run `pytest tests/integration -v` to confirm the B08 case for real — closes the one open row in §4/§6.4.
++- [x] `pytest tests/integration -v` 10/10 live on Day 16 (B08 confirmed). [ ] Re-run once more on the final code before submission.
+ - [ ] Final citation-check pass on every reference in §2 immediately before submission (see the citation-checking note there).
+ - [ ] Pick and record: license for the public repo, exact model access date range, arXiv category/endorsement plan (paper guide §4.2–4.3).
+diff --git a/PREREGISTRATION.md b/PREREGISTRATION.md
+index 0a360fe..2e91e23 100644
+--- a/PREREGISTRATION.md
++++ b/PREREGISTRATION.md
+@@ -7,9 +7,9 @@ out. Commit this file (and tag the commit) **before** the first real run;
+ the commit hash is then recorded automatically in
+ `runs/<name>.runmeta.json` on every invocation.
+ 
+-Fields in `[FILL: …]` are decided after the Day-16 token measurement
+-(`scripts/usage_report.py`) and filled in *before* launch. Everything else is
+-frozen now. Changes after launch go in the **Deviation log** at the bottom —
++All design values below were filled from the Day-16 measurements and pilots
++before launch (this file is frozen at the `prereg-week3` tag). Everything
++here is frozen at launch. Changes after launch go in the **Deviation log** at the bottom —
+ never as silent edits above it.
+ 
+ ---
+@@ -40,11 +40,11 @@ noise robustness from this experiment. (`DRAFT.md` §3.4 says so.)
+ | Generation | One selection step: up to `max_retries_per_generation` = 3 Σ calls (admission rejections and unusable replies are retried with sanitized feedback and logged). A generation whose retries are all exhausted is `stalled` and counts as a generation. |
+ | Selection rule | As specified in the header comment of `delta/selection.py` — top-k distinct (canonical-AST fingerprint) attested-valid candidates ever seen, tie-inclusive, parent sampled uniformly from the band. k = 1 reproduces the pre-existing single-winner rule. **Not tuned.** k = 3 is chosen a priori and is the only k run. |
+ | Round-robin | All 6 arms advance in chunks of `--round-size` = 10 generations, so any early stop leaves the arms matched to within one chunk. |
+-| Σ model & prompt | `openai/gpt-oss-120b` via Groq free tier, `reasoning_effort=low`, `temperature=0.7`, `max_tokens=2048`. One model and **one prompt (v2)** for all arms; the prompt version and SHA-256 are recorded on every invocation in `runmeta.json` (`summarize_ledgers.py` flags a mid-run change). See §7. [FILL: access date range from `runmeta.json`] |
++| Σ model & prompt | `openai/gpt-oss-120b` via Groq free tier, `reasoning_effort=low`, `temperature=0.7`, `max_tokens=2048`. One model and **one prompt (v2)** for all arms; the prompt version and SHA-256 are recorded on every invocation in `runmeta.json` (`summarize_ledgers.py` flags a mid-run change). See §7. [Access date range: recorded from `runmeta.json` after the run — a record, not a design choice.] |
+ | Sandbox | Docker, image digest as recorded in `runmeta.json` (must be the same for every arm; if it changes mid-run, log it below). |
+-| Target generations per arm | [FILL after the v2 pilot. Proposed: **N = 100**. Basis: Groq's published free-tier limit for this model is 200K tokens/day (30 RPM / 1K RPD / 8K TPM; console.groq.com/docs/rate-limits — verify on your account); measured v1 cost 1,518 tokens/call (p95 1,807), v2 expected ≈ +150; measured 1.0 calls/generation over 14 pilot generations but 1.6 on the binpacking warm-up, so plan on 1.0–1.6. 600 generations × 1.3 calls × ~1,670 tokens ≈ 1.3M tokens ≈ 6.7 days at the cap; the deadline below makes this safe either way.] |
+-| Daily token cap (local) | [FILL: value passed as `--daily-token-cap`] |
+-| Stopping rule | Stop when **every arm** reaches N, **or** at the end of Day 23 (2026-10-02), whichever comes first. If stopped by the deadline, all analysis is done at G_common = the fewest generations any arm completed. |
++| Target generations per arm | **N = 100** (final; see basis below). [Basis, from the v2 pilot: Basis: Groq's published free-tier limit for this model is 200K tokens/day (30 RPM / 1K RPD / 8K TPM; console.groq.com/docs/rate-limits — verify on your account); measured v1 cost 1,518 tokens/call (p95 1,807), v2 expected ≈ +150; measured 1.0 calls/generation over 14 pilot generations but 1.6 on the binpacking warm-up, so plan on 1.0–1.6. v2 measured **1,754 tokens/call (n = 40; prompt ≈ 1,148)** and **1.00 calls/generation over all 54 pilot generations (0 gate rejections)**. 600 generations × 1.0–1.3 calls × 1,754 ≈ 1.05–1.37M tokens ≈ 5.5–7.2 days at a 190K/day cap; the deadline below keeps it safe if calls/generation is higher.] |
++| Daily token cap (local) | `--daily-token-cap 190000` (Groq's published limit is 200K TPD; 10K margin ≈ 5 worst-case calls of overshoot; the provider window may be rolling, so a real 429 can still stop a day early — that is a clean stop, not an error) |
++| Stopping rule | Stop when **every arm** reaches N, **or** at the end of Day 23 (2026-10-02), whichever comes first. If stopped by the deadline, all analysis is done at G_common = the fewest generations any arm completed. **N is not extended** after the arms reach it, whatever the results look like (no optional stopping). |
+ | Code freeze | The `delta/`, `harness/`, `sigma/` code and this file are frozen at launch. Any change after the first real generation is logged below with its commit hash and the reason; the manifest digest in the ledger will differ across such a boundary and the paper must say so. |
+ 
+ ## 3. Hypotheses
+@@ -91,6 +91,25 @@ the reported arms:
+    "a deliberately weak starting point." That wording was inaccurate and
+    steered Σ away from the restructuring the task needs.
+ 
++**v2 pilot result (seed_base 9999, both conditions, 20 generations each, throwaway
++ledgers `runs/pilot_v2.*`):** **0 strict improvements in either arm** — best =
++baseline = 2.1667 in both (the band arm's best printed 2.166666666666667, one
++float ulp above baseline; not an improvement under H1's 1e-9 tolerance). But v2
++changed Σ's behavior: it now proposes valid non-grid layouts (fitness 1.9330127
++= 1.5 + √3/4, 1.7414 = 1.6 + √2/10) that score *below* the grid, and exact-tie
++variants; invalid packings 3/20 (single-winner) and 4/20 (band); 1 candidate
++crashed (nonzero exit, no scored result — an ordinary execution failure, not a
++barrier event). 1.00 Σ calls/generation, 0 gate rejections. The driver, round-
++robin, token cap and checkpoint/resume ran correctly live (12 → 20 continued,
++not restarted). Pooled with v1, that is 0 improvements in 54 pilot generations.
++
++**Consequence, per the rule below:** launch anyway. 40 v2 generations cannot
++show Σ *cannot* improve (structural proposals now appear, and improvements in
++this literature typically arrive after far more samples), and 14 + 40 pilot
++generations is not a basis for further tuning. **H1 may well fail in the
++reported run, and the ablation would then be uninformative** (both arms flat
++at the baseline); the paper would say exactly that.
++
+ **Decision (made on 14 generations of v1 data — a small, informal basis, and
+ disclosed as such):** revise the prompt **once** to v2 (edit size unrestricted
+ within the block; objective states the all-or-nothing validity rule and that
+diff --git a/STATUS.md b/STATUS.md
+index b3034eb..cc45e0d 100644
+--- a/STATUS.md
++++ b/STATUS.md
+@@ -365,7 +365,36 @@ single-winner and 6 generations elite-band (k=3) on throwaway ledgers.
+   semantically-equivalent rewrites (`0.5/side` ≡ `1/(2·side)`) can fill the
+   band with behavioral duplicates. Left as is — the rule is pre-registered —
+   and to be disclosed as a limitation.
+-- **Not yet confirmed:** the `pytest tests/integration -v` results (B08).
++- **Confirmed at Day 16:** `pytest tests/integration -v` → 10/10 passed against real Docker (22 s), including B08 (`test_no_host_secrets_reachable_inside_container`) — see the v2 pilot section below.
++
++## Day 16 v2 pilot (patch 2 applied, uncommitted): plumbing verified, H1 still open
++
++Ran on your machine: `--conditions single_winner,elite_band --seeds 9999
++--target-generations 12` then the identical command with `20`, ledger
++`runs/pilot_v2.db`, `--daily-token-cap 190000`; plus `pytest tests/integration -v`.
++- **Live-verified:** target-total + round-robin + resume (second command
++  continued at generation 12 in both arms; every arm reached exactly 20);
++  local token cap plumbing; prompt version/hash in `runmeta.json` (v2, 1 hash);
++  ledger chains OK; **integration suite 10/10 (B08 closed)**.
++- **Cost measured:** v2 = 1,754 tokens/call (40 calls; prompt ≈ 1,148); 1.00
++  Σ calls/generation across all 54 pilot generations; **0 admission
++  rejections ever fired on real Σ output** (so the paper's real-run rejection
++  taxonomy will be essentially empty; the barrier evidence is the ADV suite).
++- **Quality:** 0 strict improvements in either arm (20 gens each). Σ now
++  proposes valid non-grid layouts (1.9330127 = 1.5 + √3/4; 1.7414 = 1.6 +
++  √2/10) but all score below the seed grid; 3–4 of 20 invalid packings per
++  arm; 1 crashed candidate (nonzero exit → no attested result; ordinary
++  failure, not an integrity event). A band-arm 1-ulp "improvement"
++  (2.166666666666667) is not an improvement under H1's 1e-9 tolerance.
++- **Decision:** per `PREREGISTRATION.md` §7, launch unchanged (no further
++  prompt changes) at N = 100/arm, 6 arms, token cap 190000, deadline Day 23.
++- `git_dirty` in `runmeta.json` now watches only run-affecting code
++  (`delta harness sigma seed scripts/run_stage1.py`) — daily doc edits no
++  longer make later invocations look dirty. (Pilot invocations were dirty
++  because patch 2 was uncommitted; expected.)
++- `summarize_ledgers.py` now prints `baseline rows` (must be 1 — the
++  once-only baseline check across resumes) and relabels "unattested" as "no
++  attested result (crash/timeout, not an integrity event)".
+ 
+ ## Not yet built / not yet run for real (Week 3 remainder onward)
+ 
+@@ -393,7 +422,7 @@ single-winner and 6 generations elite-band (k=3) on throwaway ledgers.
+ 
+ - [ ] `P_0` improves measurably over generations on circle packing — blocked on the real experiment (see above)
+ - [x] Manifest integrity mechanism built and unit-tested (full-run claim comes once real generations run)
+-- [x] The 8-10 case adversarial suite passes — 13/17 Tier A+C cases tested (exceeds target), Tier A via unit tests, Tier C via unit tests + all 9 integration cases (incl. C04/C06/C10) live-verified 2026-09-23; new B08 bonus test still needs its first live-container run
++- [x] The 8-10 case adversarial suite passes — 13/17 Tier A+C cases tested (exceeds target), Tier A via unit tests, Tier C via unit tests + all 10 integration tests (incl. C04/C06/C10 and the B08 bonus) live-verified against real Docker (9/9 on 2026-09-23; 10/10 on Day 16)
+ - [ ] Elite-band vs single-winner ablation — machinery built + pre-registered (`PREREGISTRATION.md`); not yet run
+ - [x] Ledger chain built and unit-tested (hash chain, tamper detection, lineage/generation queries all verified)
+ - [x] Sandbox hardening verified on a real Docker daemon
+diff --git a/WEEK3_SETUP.md b/WEEK3_SETUP.md
+index 242eea7..0f45652 100644
+--- a/WEEK3_SETUP.md
++++ b/WEEK3_SETUP.md
+@@ -121,15 +121,19 @@ git tag prereg-week3
+ 
+ ## 5. Launch the matched experiment
+ 
+-Template (substitute N and the token cap from step 4):
++Frozen values (`PREREGISTRATION.md` §2): N = 100, token cap 190000.
+ 
+ ```bash
+ python scripts/run_stage1.py --task circle_packing \
+     --conditions single_winner,elite_band --band-size 3 \
+-    --seeds 0,1000,2000 --target-generations <N> --round-size 10 \
+-    --ledger runs/week3.db --daily-token-cap <CAP>
++    --seeds 0,1000,2000 --target-generations 100 --round-size 10 \
++    --ledger runs/week3.db --daily-token-cap 190000
+ ```
+ 
++If today's pilot tokens already count against Groq's window, the first day
++may stop early on a real TPD 429 — that is a clean exit (code 3), not a failure;
++just re-run tomorrow.
++
+ This creates six ledgers — `runs/week3.{single_winner,elite_band}.seed{0,1000,2000}.db`
+ — each with a `.checkpoint.json`, plus `runs/week3.runmeta.json`.
+ 
+diff --git a/scripts/run_stage1.py b/scripts/run_stage1.py
+index 5428a1f..4940717 100644
+--- a/scripts/run_stage1.py
++++ b/scripts/run_stage1.py
+@@ -56,6 +56,12 @@ from sigma.prompts import PROMPT_VERSION, prompt_fingerprint  # noqa: E402
+ 
+ CONDITIONS = ("single_winner", "elite_band")
+ 
++# `git_dirty` in runmeta.json answers "was the code that produces results
++# identical to the recorded commit?" -- so it only looks at run-affecting
++# paths. Editing STATUS.md / DRAFT.md / analysis scripts between days (which
++# the workflow does daily) must not make every later invocation look dirty.
++RUN_CODE_PATHS = ["delta", "harness", "sigma", "seed", "scripts/run_stage1.py"]
++
+ 
+ @dataclass(frozen=True)
+ class Arm:
+@@ -154,7 +160,8 @@ def _write_run_meta(base_ledger: str, args, arms, model: str) -> None:
+     """Append one record per invocation to <ledger stem>.runmeta.json. The
+     per-invocation git commit is how the paper can state that the Delta code
+     was identical across every day of the run (or say plainly that it was
+-    not). Only TRACKED-file modifications count as 'dirty'."""
++    not). 'Dirty' = a tracked run-affecting file (RUN_CODE_PATHS) differs
++    from the recorded commit; docs and analysis scripts do not count."""
+     path = Path(base_ledger).with_suffix(".runmeta.json")
+     path.parent.mkdir(parents=True, exist_ok=True)
+     try:
+@@ -164,7 +171,7 @@ def _write_run_meta(base_ledger: str, args, arms, model: str) -> None:
+     meta["invocations"].append({
+         "ts_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+         "git_commit": _git("rev-parse", "HEAD"),
+-        "git_dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
++        "git_dirty": bool(_git("status", "--porcelain", "--untracked-files=no", "--", *RUN_CODE_PATHS)),
+         "prompt_version": PROMPT_VERSION,
+         "prompt_sha256": prompt_fingerprint(),
+         "python": platform.python_version(),
+diff --git a/scripts/summarize_ledgers.py b/scripts/summarize_ledgers.py
+index 3888569..2e6951c 100644
+--- a/scripts/summarize_ledgers.py
++++ b/scripts/summarize_ledgers.py
+@@ -60,6 +60,7 @@ def analyze(rows: list[dict]) -> dict:
+     """Pure function of the ledger rows -- unit tested."""
+     task = rows[0]["task"] if rows else None
+     base = next((r for r in rows if r["generation_index"] == -1 and r["attested"] and r["fitness"] is not None), None)
++    n_baseline_rows = sum(1 for r in rows if r["generation_index"] == -1)
+     gen_rows = [r for r in rows if r["generation_index"] >= 0]
+     gens = sorted({r["generation_index"] for r in gen_rows})
+     evaluated = [r for r in gen_rows if r["admitted"] == 1]
+@@ -90,7 +91,7 @@ def analyze(rows: list[dict]) -> dict:
+         seed_base = base["seed"]
+     label = next((r["ablation_config"] for r in rows if r["ablation_config"]), None)
+     return {
+-        "task": task, "label": label, "seed_base": seed_base,
++        "task": task, "label": label, "seed_base": seed_base, "n_baseline_rows": n_baseline_rows,
+         "baseline": base["fitness"] if base else None,
+         "n_generations": len(gens), "n_calls": len(gen_rows),
+         "calls_per_gen": (len(gen_rows) / len(gens)) if gens else None,
+@@ -130,7 +131,8 @@ def print_arm(path: str, a: dict) -> None:
+         print(f"   P_0 baseline: {_fmt(a['baseline'])} | best: {_fmt(a['best'])}")
+     if a["n_generations"]:
+         print("   best after N gens: " + "  ".join(f"{n}:{_fmt(best_at(a, n))}" for n in checkpoints(a["n_generations"])))
+-    print(f"   evaluated: {a['n_evaluated']} | unattested: {a['n_unattested']} | sandbox status: {a['status'] or '{}'}"
++    print(f"   baseline rows: {a['n_baseline_rows']} (must be 1) | evaluated: {a['n_evaluated']} | "
++          f"no attested result (crash/timeout, not an integrity event): {a['n_unattested']} | sandbox status: {a['status'] or '{}'}"
+           + (f" | scored-invalid packings: {a['invalid_packings']}" if a["task"] == "circle_packing" else ""))
+     rej = ", ".join(f"{k} {v}" for k, v in sorted(a["rejections"].items(), key=lambda kv: -kv[1])) or "none"
+     print(f"   rejections: {rej}")
+diff --git a/tests/adv/COVERAGE.md b/tests/adv/COVERAGE.md
+index 99298d1..05c01fd 100644
+--- a/tests/adv/COVERAGE.md
++++ b/tests/adv/COVERAGE.md
+@@ -52,7 +52,7 @@ limit) directly. B06 (timeout), B07 (`ctypes`/shellcode — already blocked
+ upstream at G3 regardless), B09 (orphan process after container exit)
+ still have no dedicated test; not required by Stage 1's stated scope.
+ 
+-**B08 (env/secret enumeration) — closed, Week 3 Day 15.** Two tests now
++**B08 (env/secret enumeration) — closed, Week 3 Day 15; live-container run passed on Day 16 (`tests/integration`, 10/10).** Two tests now
+ cover this, at different layers:
+ - `tests/unit/test_launcher.py::test_no_env_flag_ever_names_a_secret_variable`
+   (host-only, no Docker needed): sets fake `GROQ_API_KEY` /
+diff --git a/tests/unit/test_report_scripts.py b/tests/unit/test_report_scripts.py
+index 7a97361..1425d70 100644
+--- a/tests/unit/test_report_scripts.py
++++ b/tests/unit/test_report_scripts.py
+@@ -81,6 +81,7 @@ def test_analyze_reports_baseline_best_curve_and_seed(tmp_path):
+     assert a["label"] == "single_winner_k1" and a["seed_base"] == 1000
+     assert [sl.best_at(a, n) for n in (0, 1, 2, 4)] == [2.0, 2.0, 2.5, 3.0]
+     assert a["calls_per_gen"] == 1.0
++    assert a["n_baseline_rows"] == 1
+ 
+ 
+ def test_analyze_counts_rejections_and_invalid_packings(tmp_path):
+diff --git a/tests/unit/test_run_stage1_cli.py b/tests/unit/test_run_stage1_cli.py
+index a1b95e7..a1c8fdc 100644
+--- a/tests/unit/test_run_stage1_cli.py
++++ b/tests/unit/test_run_stage1_cli.py
+@@ -151,6 +151,13 @@ def test_archive_existing_renames_instead_of_deleting(tmp_path):
+     assert any(n.startswith("a.db.bak-") for n in names) and any(n.startswith("a.db.checkpoint.json.bak-") for n in names)
+ 
+ 
++def test_dirty_flag_only_watches_run_affecting_code():
++    mod = _load_run_stage1()
++    assert "delta" in mod.RUN_CODE_PATHS and "sigma" in mod.RUN_CODE_PATHS
++    assert "STATUS.md" not in mod.RUN_CODE_PATHS and "DRAFT.md" not in mod.RUN_CODE_PATHS
++    assert "scripts/summarize_ledgers.py" not in mod.RUN_CODE_PATHS
++
++
+ def test_run_meta_appends_one_record_per_invocation(tmp_path):
+     mod = _load_run_stage1()
+     arms = mod.build_arms(["single_winner"], [0], 1, str(tmp_path / "w3.db"))
